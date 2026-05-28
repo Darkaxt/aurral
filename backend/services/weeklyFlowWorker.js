@@ -36,6 +36,8 @@ const STRICT_FORMAT_MATCH_CANDIDATES = 40;
 const STRICT_RETRY_MATCH_CANDIDATES = 28;
 const MAX_DOWNLOAD_ATTEMPTS_PER_JOB = 7;
 const MAX_DOWNLOAD_ATTEMPTS_PER_RETRY = 9;
+const MAX_SEARCH_GROUPS_TO_RANK = 120;
+const MAX_SEARCH_FILES_PER_GROUP = 12;
 const FALLBACK_MP3_REGEX = /^[^/\\]+-[a-f0-9]{8}\.mp3$/i;
 const FALLBACK_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_RETRIES_PER_JOB = 1;
@@ -1269,6 +1271,10 @@ export class WeeklyFlowWorker {
         preferredFormatStrict,
         retryAttempt,
       );
+      const rankingLimits = {
+        maxGroups: MAX_SEARCH_GROUPS_TO_RANK,
+        maxFilesPerGroup: MAX_SEARCH_FILES_PER_GROUP,
+      };
       const aggregatedResults = [];
       const seenResults = new Set();
       let rankedMatches = [];
@@ -1290,6 +1296,7 @@ export class WeeklyFlowWorker {
         rankedMatches = rankFlowSearchResults(aggregatedResults, resolvedTrack, {
           preferredFormat,
           strictFormat: preferredFormatStrict,
+          ...rankingLimits,
           isUserBlacklisted: (user) => soulseekClient.isUserBlacklisted(user),
           getUserQueuePenalty: (user) => soulseekClient.getUserQueuePenalty(user),
         });
@@ -1347,6 +1354,7 @@ export class WeeklyFlowWorker {
         rankFlowSearchResults(aggregatedResults, resolvedTrack, {
           preferredFormat: format,
           strictFormat,
+          ...rankingLimits,
           isUserBlacklisted: (user) => soulseekClient.isUserBlacklisted(user),
           getUserQueuePenalty: (user) => soulseekClient.getUserQueuePenalty(user),
         }).slice(0, candidatePoolSize);

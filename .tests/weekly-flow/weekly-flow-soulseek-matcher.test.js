@@ -226,6 +226,46 @@ test("rankFlowSearchResults skips blacklisted users and penalizes queued users",
   assert.equal(ranked[0].raw.user, "healthyUser");
 });
 
+test("rankFlowSearchResults caps huge folders while keeping likely target files", () => {
+  const noisyFiles = Array.from({ length: 250 }, (_, index) => ({
+    user: "largeLibraryUser",
+    file: `Game Composer\\Huge Game OST\\${String(index + 1).padStart(3, "0")} - Ambient Cue ${index + 1}.flac`,
+    size: 100,
+    slots: true,
+    bitrate: 900,
+    speed: 900000,
+  }));
+
+  const ranked = rankFlowSearchResults(
+    [
+      ...noisyFiles,
+      {
+        user: "largeLibraryUser",
+        file: "Game Composer\\Huge Game OST\\251 - Correct Theme.flac",
+        size: 100,
+        slots: true,
+        bitrate: 900,
+        speed: 900000,
+      },
+    ],
+    {
+      artistName: "Game Composer",
+      trackName: "Correct Theme",
+      albumName: "Huge Game OST",
+      artistAliases: [],
+      albumTrackCount: 251,
+    },
+    {
+      preferredFormat: "flac",
+      strictFormat: false,
+      maxFilesPerGroup: 12,
+    },
+  );
+
+  assert.ok(ranked.length <= 12);
+  assert.match(ranked[0].raw.file, /Correct Theme\.flac$/);
+});
+
 test("selectRankedMatchAttempts spreads early attempts across users before reusing one", () => {
   const selected = selectRankedMatchAttempts(
     [
