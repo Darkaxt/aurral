@@ -112,3 +112,43 @@ test("queued peer download timeout destroys the pending Soulseek socket", async 
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("queued timeout resets the Soulseek connection when no file socket was opened", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "aurral-slsk-control-timeout-"),
+  );
+  try {
+    const { SimpleSoulseekClient } = await importFromRepo(
+      "backend/services/simpleSoulseekClient.js",
+    );
+
+    const client = new SimpleSoulseekClient();
+    let disconnects = 0;
+    client.acquireConnection = async () => {};
+    client.releaseConnection = () => {};
+    client._disconnectOnTransferFailure = () => {
+      disconnects += 1;
+    };
+    client.client = {
+      download() {},
+    };
+
+    await assert.rejects(
+      client.download(
+        {
+          user: "queued-user",
+          file: "Artist\\Album\\02 - Control Path.flac",
+          size: 1024,
+        },
+        path.join(tempDir, "queued-control.flac"),
+        null,
+        { queuedTimeoutMs: 2500 },
+      ),
+      /Download queued/,
+    );
+
+    assert.equal(disconnects, 1);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

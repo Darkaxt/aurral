@@ -1395,6 +1395,7 @@ export class SimpleSoulseekClient {
             const error = abortCurrentPeerDownload(
               new Error("Download queued (skipping to next source)"),
             );
+            this._disconnectOnTransferFailure();
             settle(reject)(error);
           }, QUEUED_TIMEOUT_MS);
         }
