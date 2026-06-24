@@ -787,11 +787,17 @@ export class WeeklyFlowWorker {
     return removed;
   }
 
-  _requeueFailedJobs(playlistType, reason = null) {
+  _requeueFailedJobs(playlistType, reason = null, limit = Infinity) {
     if (this._isRetryCyclePaused(playlistType)) return 0;
+    const max =
+      Number.isFinite(Number(limit)) && Number(limit) > 0
+        ? Math.floor(Number(limit))
+        : 0;
+    if (max <= 0) return 0;
     const jobs = downloadTracker.getByPlaylistType(playlistType);
     let requeued = 0;
     for (const job of jobs) {
+      if (requeued >= max) break;
       if (job.status !== "failed") continue;
       this.retryAttempts.delete(job.id);
       this.retryNotBefore.delete(job.id);
@@ -876,15 +882,17 @@ export class WeeklyFlowWorker {
     }
 
     let changed = 0;
+    const shortfall = Math.max(0, target - Number(stats.done || 0));
     if (flow) {
-      const shortfall = Math.max(0, target - Number(stats.done || 0));
       if (shortfall > 0) {
         changed += await this._enqueueBackupJobs(playlistType, shortfall);
       }
     }
+    const failedRetryLimit = Math.max(0, shortfall - changed);
     changed += this._requeueFailedJobs(
       playlistType,
       "Retrying incomplete playlist",
+      failedRetryLimit,
     );
 
     if (changed > 0) {
@@ -948,27 +956,40 @@ export class WeeklyFlowWorker {
       });
     const unique = Array.isArray(plan?.primaryTracks) ? plan.primaryTracks : [];
     const reserve = Array.isArray(plan?.reserveTracks) ? plan.reserveTracks : [];
+    const tracksToEnqueue = [];
+    const tracksToReserve = [];
+    const acceptTrack = (track) => {
+      const key = this._trackKeyFromTrack(track);
+      const artistKey = this._artistKeyFromTrack(track);
+      if (!key || existingKeys.has(key)) return false;
+      if (artistKey && existingArtistKeys.has(artistKey)) return false;
+      existingKeys.add(key);
+      if (artistKey) existingArtistKeys.add(artistKey);
+      return true;
+    };
+    for (const track of unique) {
+      if (!acceptTrack(track)) continue;
+      if (tracksToEnqueue.length < remainingShortfall) {
+        tracksToEnqueue.push(track);
+      } else {
+        tracksToReserve.push(track);
+      }
+    }
+    for (const track of reserve) {
+      if (acceptTrack(track)) {
+        tracksToReserve.push(track);
+      }
+    }
     if (plan) {
       const currentReserve = this.playlistReservePools.get(String(playlistType)) || [];
       this.playlistReservePools.set(
         String(playlistType),
-        [
-          ...currentReserve,
-          ...reserve.filter((track) => {
-            const key = this._trackKeyFromTrack(track);
-            const artistKey = this._artistKeyFromTrack(track);
-            if (!key || existingKeys.has(key)) return false;
-            if (artistKey && existingArtistKeys.has(artistKey)) return false;
-            existingKeys.add(key);
-            if (artistKey) existingArtistKeys.add(artistKey);
-            return true;
-          }),
-        ],
+        [...currentReserve, ...tracksToReserve],
       );
       this.playlistRunDiagnostics.set(String(playlistType), plan?.diagnostics || null);
     }
-    if (unique.length === 0) return added;
-    added += downloadTracker.addJobs(unique, playlistType).length;
+    if (tracksToEnqueue.length === 0) return added;
+    added += downloadTracker.addJobs(tracksToEnqueue, playlistType).length;
     if (added > 0) {
       console.log(
         `[WeeklyFlowWorker] Enqueued ${added} replacement tracks for ${playlistType} (shortfall ${shortfall})`,

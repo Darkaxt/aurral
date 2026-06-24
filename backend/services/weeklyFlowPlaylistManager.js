@@ -65,6 +65,12 @@ export class WeeklyFlowPlaylistManager {
   }
 
   _getWeeklyFlowLibraryHostPath() {
+    const navidromePath = String(
+      process.env.NAVIDROME_WEEKLY_FLOW_LIBRARY_PATH || "",
+    ).trim();
+    if (navidromePath) {
+      return navidromePath.replace(/\\/g, "/").replace(/\/+$/, "");
+    }
     const base = process.env.DOWNLOAD_FOLDER || "/data/downloads/tmp";
     return `${base.replace(/\\/g, "/").replace(/\/+$/, "")}/aurral-weekly-flow`;
   }
