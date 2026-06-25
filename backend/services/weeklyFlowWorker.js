@@ -1606,8 +1606,7 @@ export class WeeklyFlowWorker {
         resolvedAlbum,
       );
       const finalDir = path.join(
-        this.weeklyFlowRoot,
-        "aurral-weekly-flow",
+        playlistManager.libraryRoot,
         job.playlistType,
         artistDir,
         albumDir,
@@ -1732,6 +1731,7 @@ export class WeeklyFlowWorker {
       } catch {}
       try {
         playlistManager.updateConfig(false);
+        await playlistManager.cleanupPlaylistFilesNotInDoneJobs(playlistType);
         await playlistManager.ensureSmartPlaylists();
         await playlistManager.scanLibrary();
         if (flowPlaylistConfig.isEnabled(playlistType)) {

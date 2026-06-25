@@ -5,6 +5,10 @@ import { NavidromeClient } from "./navidrome.js";
 import { flowPlaylistConfig } from "./weeklyFlowPlaylistConfig.js";
 import { downloadTracker } from "./weeklyFlowDownloadTracker.js";
 import { writePlaylistArtworkSidecar } from "./playlistArtwork.js";
+import {
+  getNavidromeWeeklyFlowLibraryPath,
+  getWeeklyFlowLibraryRoot,
+} from "./weeklyFlowPaths.js";
 
 export class WeeklyFlowPlaylistManager {
   constructor(
@@ -14,7 +18,7 @@ export class WeeklyFlowPlaylistManager {
     this.weeklyFlowRoot = path.isAbsolute(weeklyFlowRoot)
       ? weeklyFlowRoot
       : path.resolve(process.cwd(), weeklyFlowRoot);
-    this.libraryRoot = path.join(this.weeklyFlowRoot, "aurral-weekly-flow");
+    this.libraryRoot = getWeeklyFlowLibraryRoot(this.weeklyFlowRoot);
     this.navidromeClient = null;
     this._navidromeConfigKey = "";
     this._ensureInFlight = null;
@@ -65,14 +69,7 @@ export class WeeklyFlowPlaylistManager {
   }
 
   _getWeeklyFlowLibraryHostPath() {
-    const navidromePath = String(
-      process.env.NAVIDROME_WEEKLY_FLOW_LIBRARY_PATH || "",
-    ).trim();
-    if (navidromePath) {
-      return navidromePath.replace(/\\/g, "/").replace(/\/+$/, "");
-    }
-    const base = process.env.DOWNLOAD_FOLDER || "/data/downloads/tmp";
-    return `${base.replace(/\\/g, "/").replace(/\/+$/, "")}/aurral-weekly-flow`;
+    return getNavidromeWeeklyFlowLibraryPath();
   }
 
   _getPlaylistBaseName(playlistName) {
@@ -272,7 +269,62 @@ export class WeeklyFlowPlaylistManager {
     return this.navidromeClient.scanLibrary();
   }
 
-  async weeklyReset(playlistTypes = null) {
+  async cleanupPlaylistFilesNotInDoneJobs(playlistType) {
+    const playlistId = String(playlistType || "").trim();
+    if (!playlistId) return 0;
+
+    const playlistDir = path.join(this.libraryRoot, playlistId);
+    const keepPaths = new Set(
+      downloadTracker
+        .getByPlaylistType(playlistId)
+        .filter((job) => job.status === "done" && job.finalPath)
+        .map((job) => path.resolve(job.finalPath)),
+    );
+    if (keepPaths.size === 0) return 0;
+
+    let removed = 0;
+    const pruneDir = async (dir) => {
+      let entries;
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          const empty = await pruneDir(entryPath);
+          if (empty) {
+            await fs.rmdir(entryPath).catch(() => {});
+          }
+          continue;
+        }
+        if (!keepPaths.has(path.resolve(entryPath))) {
+          await fs.rm(entryPath, { force: true });
+          removed += 1;
+        }
+      }
+
+      const remaining = await fs.readdir(dir).catch(() => []);
+      return (
+        remaining.length === 0 &&
+        path.resolve(dir) !== path.resolve(playlistDir)
+      );
+    };
+
+    await pruneDir(playlistDir);
+    if (removed > 0) {
+      console.log(
+        `[WeeklyFlowPlaylistManager] Removed ${removed} stale files for ${playlistId}`,
+      );
+    }
+    return removed;
+  }
+
+  async weeklyReset(playlistTypes = null, options = {}) {
+    const deleteFiles = options?.deleteFiles !== false;
     const targets =
       playlistTypes && playlistTypes.length
         ? playlistTypes
@@ -291,15 +343,21 @@ export class WeeklyFlowPlaylistManager {
         } catch {}
       }
       const playlistDir = path.join(this.libraryRoot, playlistType);
-      try {
-        await fs.rm(playlistDir, { recursive: true, force: true });
+      if (deleteFiles) {
+        try {
+          await fs.rm(playlistDir, { recursive: true, force: true });
+          console.log(
+            `[WeeklyFlowPlaylistManager] Deleted files for ${playlistType}`,
+          );
+        } catch (error) {
+          console.warn(
+            `[WeeklyFlowPlaylistManager] Failed to delete files for ${playlistType}:`,
+            error.message,
+          );
+        }
+      } else {
         console.log(
-          `[WeeklyFlowPlaylistManager] Deleted files for ${playlistType}`,
-        );
-      } catch (error) {
-        console.warn(
-          `[WeeklyFlowPlaylistManager] Failed to delete files for ${playlistType}:`,
-          error.message,
+          `[WeeklyFlowPlaylistManager] Preserved files for ${playlistType}`,
         );
       }
       downloadTracker.clearByPlaylistType(playlistType);
