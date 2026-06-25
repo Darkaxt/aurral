@@ -27,7 +27,7 @@ export async function runScheduledRefresh() {
           weeklyFlowWorker.clearIncompleteRetry(flow.id);
           weeklyFlowWorker.clearPlaylistRunState(flow.id);
           playlistManager.updateConfig(false);
-          await playlistManager.weeklyReset([flow.id]);
+          await playlistManager.weeklyReset([flow.id], { deleteFiles: false });
           downloadTracker.clearByPlaylistType(flow.id);
 
           const latestFlow = flowPlaylistConfig.getFlow(flow.id);

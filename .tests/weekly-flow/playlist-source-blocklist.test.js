@@ -94,3 +94,35 @@ test("getTagTracks returns no tracks when the requested tag is blocklisted", asy
 
   assert.deepEqual(tracks, []);
 });
+
+test("focus flows include related artists themselves before similar artists", async () => {
+  const source = new WeeklyFlowPlaylistSource();
+  source._getSimilarArtists = async () => [
+    {
+      name: "Similar Artist",
+      mbid: "33333333-3333-3333-3333-333333333333",
+      listeners: 500000,
+      match: 1,
+    },
+  ];
+  source._getArtistTopTags = async () => [];
+  source._getTracksForRankedArtists = async (artists, limit) =>
+    artists.slice(0, limit).map((artist, index) => ({
+      artistName: artist.name,
+      artistMbid: artist.artistMbid,
+      trackName: `Track ${index + 1}`,
+      albumName: "Album",
+    }));
+
+  const tracks = await source.getTracksForFlow({
+    size: 2,
+    mix: { discover: 0, mix: 0, trending: 0, focus: 100 },
+    tags: [],
+    relatedArtists: ["Seed Artist"],
+    deepDive: false,
+  });
+
+  assert.equal(tracks.length, 2);
+  assert.equal(tracks[0].artistName, "Seed Artist");
+  assert.equal(tracks[1].artistName, "Similar Artist");
+});

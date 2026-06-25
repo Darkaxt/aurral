@@ -80,6 +80,90 @@ const parseTimestamp = (value) => {
   return null;
 };
 
+const activePeerDownloads = new Set();
+const activePeerDownloadsByKey = new Map();
+
+const normalizePeerDownloadPart = (value) => String(value || "").trim();
+
+const getPeerDownloadKey = (user, file) => {
+  const normalizedUser = normalizePeerDownloadPart(user).toLowerCase();
+  const normalizedFile = normalizePeerDownloadPart(file).toLowerCase();
+  if (!normalizedUser || !normalizedFile) return "";
+  return `${normalizedUser}\0${normalizedFile}`;
+};
+
+const addPeerDownloadIndex = (record) => {
+  const key = getPeerDownloadKey(record.user, record.file);
+  if (!key || record.keys.has(key)) return;
+  let records = activePeerDownloadsByKey.get(key);
+  if (!records) {
+    records = new Set();
+    activePeerDownloadsByKey.set(key, records);
+  }
+  records.add(record);
+  record.keys.add(key);
+};
+
+const removePeerDownloadIndex = (record) => {
+  for (const key of record.keys) {
+    const records = activePeerDownloadsByKey.get(key);
+    if (!records) continue;
+    records.delete(record);
+    if (records.size === 0) {
+      activePeerDownloadsByKey.delete(key);
+    }
+  }
+  record.keys.clear();
+};
+
+const unregisterPeerDownload = (record) => {
+  if (!record || !activePeerDownloads.has(record)) return;
+  activePeerDownloads.delete(record);
+  removePeerDownloadIndex(record);
+};
+
+const refreshPeerDownloadIdentity = (record, updates = {}) => {
+  if (!record) return;
+  removePeerDownloadIndex(record);
+  if (updates.token != null) record.token = String(updates.token);
+  if (updates.user != null) record.user = normalizePeerDownloadPart(updates.user);
+  if (updates.file != null) record.file = normalizePeerDownloadPart(updates.file);
+  addPeerDownloadIndex(record);
+};
+
+const registerPeerDownload = (record) => {
+  if (!record || activePeerDownloads.has(record)) return record;
+  record.keys = record.keys || new Set();
+  activePeerDownloads.add(record);
+  addPeerDownloadIndex(record);
+  record.conn.once("close", () => {
+    unregisterPeerDownload(record);
+  });
+  return record;
+};
+
+export const abortActiveSoulseekPeerDownloads = (
+  user,
+  file,
+  error = new Error("Download attempt aborted"),
+) => {
+  const key = getPeerDownloadKey(user, file);
+  if (!key) return 0;
+  const records = activePeerDownloadsByKey.get(key);
+  if (!records || records.size === 0) return 0;
+  let aborted = 0;
+  for (const record of [...records]) {
+    aborted += 1;
+    unregisterPeerDownload(record);
+    if (typeof record.abort === "function") {
+      record.abort(error);
+    } else if (record.conn && !record.conn.destroyed) {
+      record.conn.destroy();
+    }
+  }
+  return aborted;
+};
+
 const patchSlskDownloadPeerFile = () => {
   if (globalThis.__aurralSlskDownloadPatchApplied) return;
   const downloadPeerFileModulePath =
@@ -92,6 +176,9 @@ const patchSlskDownloadPeerFile = () => {
     return `/tmp/slsk/${user}_${parts[parts.length - 1]}`;
   };
   const patchedDownloadPeerFile = (host, port, token, user, noPierce) => {
+    const initialToken = token != null ? String(token) : undefined;
+    const initialDownloadToken =
+      initialToken != null ? slskStack.downloadTokens[initialToken] : null;
     const conn = net.createConnection(
       {
         host,
@@ -114,6 +201,14 @@ const patchSlskDownloadPeerFile = () => {
       },
     );
 
+    const peerRecord = {
+      conn,
+      token: initialToken,
+      user: normalizePeerDownloadPart(initialDownloadToken?.user || user),
+      file: normalizePeerDownloadPart(initialDownloadToken?.file),
+      keys: new Set(),
+      abort: null,
+    };
     let receivedHandshake = false;
     let requestToken = noPierce ? token : undefined;
     let tok = null;
@@ -124,12 +219,17 @@ const patchSlskDownloadPeerFile = () => {
     let streamErrored = false;
     let settled = false;
     const clearStackDownloadState = () => {
+      const tokenInfo =
+        requestToken != null ? slskStack.downloadTokens[requestToken] : null;
+      const downloadUser = tok?.user || tokenInfo?.user || peerRecord.user;
+      const downloadFile = tok?.file || tokenInfo?.file || peerRecord.file;
       if (requestToken != null) {
         delete slskStack.downloadTokens[requestToken];
       }
-      if (tok?.user && tok?.file) {
-        delete slskStack.download[`${tok.user}_${tok.file}`];
+      if (downloadUser && downloadFile) {
+        delete slskStack.download[`${downloadUser}_${downloadFile}`];
       }
+      unregisterPeerDownload(peerRecord);
     };
     const closeReadableStream = () => {
       if (down?.stream) {
@@ -148,6 +248,13 @@ const patchSlskDownloadPeerFile = () => {
       down.cb(error);
       down.cb = null;
     };
+    peerRecord.abort = (error) => {
+      finishWithError(error);
+      if (!conn.destroyed) {
+        conn.destroy();
+      }
+    };
+    registerPeerDownload(peerRecord);
     const ensureWriteStream = () => {
       if (!tok || !down || writeStream || streamErrored) return;
       filePath = down.path || getFilePathName(tok.user, tok.file);
@@ -164,6 +271,7 @@ const patchSlskDownloadPeerFile = () => {
     conn.on("data", (data) => {
       if (!noPierce && !receivedHandshake) {
         requestToken = data.toString("hex", 0, 4);
+        refreshPeerDownloadIdentity(peerRecord, { token: requestToken });
         conn.write(Buffer.from("00000000" + "00000000", "hex"));
         receivedHandshake = true;
         return;
@@ -171,6 +279,13 @@ const patchSlskDownloadPeerFile = () => {
       if (!tok) {
         tok = slskStack.downloadTokens[requestToken];
         down = tok ? slskStack.download[tok.user + "_" + tok.file] : null;
+        if (tok) {
+          refreshPeerDownloadIdentity(peerRecord, {
+            token: requestToken,
+            user: tok.user,
+            file: tok.file,
+          });
+        }
       }
       if (!tok || !down) return;
 
@@ -1198,8 +1313,11 @@ export class SimpleSoulseekClient {
             if (stallTimeoutId) clearTimeout(stallTimeoutId);
             stallTimeoutId = setTimeout(() => {
               if (settled) return;
+              const error = abortCurrentPeerDownload(
+                new Error("Download stalled (no progress)"),
+              );
               this._disconnectOnTransferFailure();
-              settle(reject)(new Error("Download stalled (no progress)"));
+              settle(reject)(error);
             }, DOWNLOAD_STALL_TIMEOUT_MS);
           };
           onData = (chunk) => {
@@ -1241,6 +1359,10 @@ export class SimpleSoulseekClient {
             progressStream.destroy();
           }
         };
+        const abortCurrentPeerDownload = (error) => {
+          abortActiveSoulseekPeerDownloads(result?.user, result?.file, error);
+          return error;
+        };
 
         const settle = (fn) => (val) => {
           if (settled) return;
@@ -1255,20 +1377,26 @@ export class SimpleSoulseekClient {
 
         timeoutId = setTimeout(async () => {
           if (settled) return;
+          const error = abortCurrentPeerDownload(new Error("Download timeout"));
           this._disconnectOnTransferFailure();
-          settle(reject)(new Error("Download timeout"));
+          settle(reject)(error);
         }, DOWNLOAD_TIMEOUT_MS);
         if (progressStream) {
           startupTimeoutId = setTimeout(() => {
             if (settled) return;
+            const error = abortCurrentPeerDownload(
+              new Error("Download stalled (no bytes received)"),
+            );
             this._disconnectOnTransferFailure();
-            settle(reject)(new Error("Download stalled (no bytes received)"));
+            settle(reject)(error);
           }, DOWNLOAD_STARTUP_TIMEOUT_MS);
           queuedTimeoutId = setTimeout(() => {
             if (settled || sawFirstByte) return;
-            settle(reject)(
+            const error = abortCurrentPeerDownload(
               new Error("Download queued (skipping to next source)"),
             );
+            this._disconnectOnTransferFailure();
+            settle(reject)(error);
           }, QUEUED_TIMEOUT_MS);
         }
 

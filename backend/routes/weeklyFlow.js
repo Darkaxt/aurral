@@ -228,8 +228,7 @@ const sortJobsForTrackReuse = (jobs) =>
 
 const getPlaylistLibraryRoot = (playlistType) =>
   path.resolve(
-    weeklyFlowWorker.weeklyFlowRoot,
-    "aurral-weekly-flow",
+    playlistManager.libraryRoot,
     String(playlistType || "").trim(),
   );
 
@@ -525,7 +524,7 @@ const queueFlowEnableRefresh = (flowId, mutationVersion) => {
       const releaseMutation = await beginPlaylistMutation(flowId);
       try {
         playlistManager.updateConfig(false);
-        await playlistManager.weeklyReset([flowId]);
+        await playlistManager.weeklyReset([flowId], { deleteFiles: false });
         weeklyFlowWorker.clearPlaylistRunState(flowId);
         downloadTracker.clearByPlaylistType(flowId);
 
@@ -638,7 +637,7 @@ router.post("/start/:flowId", async (req, res) => {
         const releaseMutation = await beginPlaylistMutation(flowId);
         try {
           playlistManager.updateConfig(false);
-          await playlistManager.weeklyReset([flowId]);
+          await playlistManager.weeklyReset([flowId], { deleteFiles: false });
           weeklyFlowWorker.clearPlaylistRunState(flowId);
           downloadTracker.clearByPlaylistType(flowId);
 
@@ -962,8 +961,7 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
     }
 
     const sourceRoot = path.resolve(
-      weeklyFlowWorker.weeklyFlowRoot,
-      "aurral-weekly-flow",
+      playlistManager.libraryRoot,
       flowId,
     );
     const uniqueCompletedJobsByIdentity = new Map();
@@ -994,8 +992,7 @@ router.post("/flows/:flowId/static-playlist", async (req, res) => {
     });
 
     const targetRoot = path.resolve(
-      weeklyFlowWorker.weeklyFlowRoot,
-      "aurral-weekly-flow",
+      playlistManager.libraryRoot,
       playlist.id,
     );
     for (const job of uniqueCompletedJobs) {
@@ -1366,8 +1363,7 @@ router.put("/shared-playlists/:playlistId", async (req, res) => {
         }
 
         const playlistRoot = path.resolve(
-          weeklyFlowWorker.weeklyFlowRoot,
-          "aurral-weekly-flow",
+          playlistManager.libraryRoot,
           playlistId,
         );
         for (const job of existingJobs) {
@@ -1440,8 +1436,7 @@ router.delete(
       }
 
       const playlistRoot = path.resolve(
-        weeklyFlowWorker.weeklyFlowRoot,
-        "aurral-weekly-flow",
+        playlistManager.libraryRoot,
         playlistId,
       );
       const safeFinalPath = path.resolve(job.finalPath);
@@ -1799,7 +1794,7 @@ router.post("/playlist/:playlistType/create", requireAdmin, async (req, res) => 
     res.json({
       success: true,
       message:
-        "Smart playlists ensured. Tracks in aurral-weekly-flow/<flow-id> will appear in matching smart playlists after Navidrome scans the flow library.",
+        `Smart playlists ensured. Tracks in ${path.basename(playlistManager.libraryRoot)}/<flow-id> will appear in matching smart playlists after Navidrome scans the flow library.`,
     });
   } catch (error) {
     res.status(500).json({

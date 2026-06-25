@@ -116,6 +116,12 @@ function scoreTextMatch(left, right) {
   return Math.round(ratio * 100);
 }
 
+function getPositiveInteger(value, fallback = null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
 function getDistinctiveAlbumPhrase(albumName) {
   const words = splitWords(albumName).filter(
     (word) => word.length > 2 && !TITLE_STOP_WORDS.has(word),
@@ -345,6 +351,109 @@ function scoreTitleConfidence(titleScore) {
   return -60;
 }
 
+function scoreRankableAudioFile(item, context, options, index) {
+  const preferredFormat = options?.preferredFormat === "mp3" ? "mp3" : "flac";
+  const strictFormat = options?.strictFormat === true;
+  const ext = path.extname(String(item?.file || "")).toLowerCase();
+  const baseName = path.basename(String(item?.file || ""), ext);
+  const titleScore = Math.max(
+    scoreTextMatch(baseName, context?.trackName),
+    scoreTextMatch(path.basename(String(item?.file || "")), context?.trackName),
+  );
+  const preferredExt = `.${preferredFormat}`;
+  const formatScore =
+    ext === preferredExt
+      ? 30
+      : strictFormat
+        ? -120
+        : ext === ".flac" || ext === ".mp3"
+          ? 12
+          : 0;
+  const trackNumberScore = scoreTrackNumberMatch(
+    context?.trackNumber,
+    extractTrackNumber(baseName),
+  );
+  const availabilityScore = item?.slots ? 8 : 0;
+  const speedScore = Math.min(
+    12,
+    Math.round(Number(item?.speed || 0) / 250000),
+  );
+  return (
+    titleScore * 3 +
+    formatScore +
+    trackNumberScore +
+    availabilityScore +
+    speedScore -
+    index / 100000
+  );
+}
+
+function selectRankableAudioFiles(audioFiles, context, options = {}) {
+  const maxFilesPerGroup = getPositiveInteger(options?.maxFilesPerGroup);
+  if (!maxFilesPerGroup || audioFiles.length <= maxFilesPerGroup) {
+    return audioFiles;
+  }
+
+  return audioFiles
+    .map((item, index) => ({
+      item,
+      index,
+      score: scoreRankableAudioFile(item, context, options, index),
+    }))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.index - right.index;
+    })
+    .slice(0, maxFilesPerGroup)
+    .map((entry) => entry.item);
+}
+
+function scoreRankableGroup(group, context, options = {}) {
+  const directoryText = group.directoryPath || "";
+  const albumDir = group.parts.at(-2) || "";
+  const artistDir = group.parts.at(-3) || "";
+  const artistScore = Math.max(
+    pickBestArtistScore(context, directoryText),
+    pickBestArtistScore(context, artistDir),
+  );
+  const albumScore = context?.albumName
+    ? Math.max(
+        scoreTextMatch(directoryText, context.albumName),
+        scoreTextMatch(albumDir, context.albumName),
+      )
+    : 0;
+  const trackCountScore = scoreTrackCount(
+    context?.albumTrackCount,
+    group.audioFiles.length,
+  );
+  const bestTitleScore = group.audioFiles.reduce((best, item, index) => {
+    if (index >= 1000 && best >= 82) return best;
+    return Math.max(
+      best,
+      scoreRankableAudioFile(item, context, options, index) / 3,
+    );
+  }, 0);
+  return artistScore + albumScore + trackCountScore + bestTitleScore;
+}
+
+function selectRankableGroups(groups, context, options = {}) {
+  const maxGroups = getPositiveInteger(options?.maxGroups);
+  if (!maxGroups || groups.length <= maxGroups) return groups;
+
+  return groups
+    .map((group, index) => ({
+      group,
+      index,
+      score: scoreRankableGroup(group, context, options),
+    }))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.index - right.index;
+    })
+    .slice(0, maxGroups)
+    .map((entry) => entry.group);
+}
+
 function scoreSiblingTrackConflict(baseName, context, titleScore) {
   const titles = Array.isArray(context?.albumTrackTitles)
     ? context.albumTrackTitles
@@ -457,10 +566,15 @@ function buildGroupCandidate(group, context, options = {}) {
   );
 
   const files = strictFormat
-    ? audioFiles.filter(
+    ? (Array.isArray(group.rankableAudioFiles)
+        ? group.rankableAudioFiles
+        : audioFiles
+      ).filter(
         (item) => path.extname(String(item?.file || "")).toLowerCase() === `.${preferredFormat}`,
       )
-    : audioFiles;
+    : Array.isArray(group.rankableAudioFiles)
+      ? group.rankableAudioFiles
+      : audioFiles;
   const candidates = [];
   for (const item of files) {
     const ext = path.extname(String(item?.file || "")).toLowerCase();
@@ -579,12 +693,23 @@ export function rankFlowSearchResults(results, context, options = {}) {
   }
 
   const ranked = [];
+  const preparedGroups = [];
   for (const group of groups.values()) {
     group.audioFiles = group.files.filter((item) =>
       AUDIO_EXTENSIONS.has(path.extname(String(item?.file || "")).toLowerCase()),
     );
     if (group.audioFiles.length === 0) continue;
     group.audioFileCount = countAudioFiles(group.files);
+    preparedGroups.push(group);
+  }
+
+  const rankableGroups = selectRankableGroups(preparedGroups, context, options);
+  for (const group of rankableGroups) {
+    group.rankableAudioFiles = selectRankableAudioFiles(
+      group.audioFiles,
+      context,
+      options,
+    );
     ranked.push(...buildGroupCandidate(group, context, options));
   }
 

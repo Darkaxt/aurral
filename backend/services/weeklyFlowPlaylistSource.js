@@ -1211,6 +1211,7 @@ export class WeeklyFlowPlaylistSource {
           tagRankSum: 0,
           relatedRankSum: 0,
           popularityHint: 0,
+          directSeedRank: null,
         };
         candidateMap.set(key, entry);
       } else if (!entry.artistMbid && mbid) {
@@ -1218,6 +1219,19 @@ export class WeeklyFlowPlaylistSource {
       }
       return entry;
     };
+
+    normalizedRelated.forEach((seed, index) => {
+      const entry = ensureEntry(seed, null);
+      if (!entry) return;
+      const seedKey = this._artistKey(seed);
+      entry.relatedSeeds.add(seedKey);
+      entry.relatedRankSum += index + 1;
+      entry.directSeedRank =
+        entry.directSeedRank == null
+          ? index + 1
+          : Math.min(entry.directSeedRank, index + 1);
+      entry.popularityHint = Math.max(entry.popularityHint, 10);
+    });
 
     const [tagGroups, relatedGroups] = await Promise.all([
       Promise.all(
@@ -1302,6 +1316,11 @@ export class WeeklyFlowPlaylistSource {
           artist.relatedSeeds.size,
           totalRelated,
         );
+        const directSeedRank =
+          Number.isFinite(Number(artist.directSeedRank)) &&
+          Number(artist.directSeedRank) > 0
+            ? Number(artist.directSeedRank)
+            : null;
         return {
           ...artist,
           sourceRank: index,
@@ -1309,6 +1328,11 @@ export class WeeklyFlowPlaylistSource {
           tagCoverage: tagMatches.size,
           relatedCoverage: artist.relatedSeeds.size,
           ...focusDetails,
+          directSeedRank,
+          focusTier: directSeedRank ? "related_seed" : focusDetails.focusTier,
+          focusPriority: directSeedRank
+            ? Math.max(focusDetails.focusPriority, 9)
+            : focusDetails.focusPriority,
         };
       }),
     );
@@ -1318,6 +1342,15 @@ export class WeeklyFlowPlaylistSource {
       .sort((left, right) => {
         if (right.focusPriority !== left.focusPriority) {
           return right.focusPriority - left.focusPriority;
+        }
+        const leftSeedRank = Number(left.directSeedRank || 0);
+        const rightSeedRank = Number(right.directSeedRank || 0);
+        if (leftSeedRank > 0 || rightSeedRank > 0) {
+          if (leftSeedRank <= 0) return 1;
+          if (rightSeedRank <= 0) return -1;
+          if (leftSeedRank !== rightSeedRank) {
+            return leftSeedRank - rightSeedRank;
+          }
         }
         if (right.tagCoverage !== left.tagCoverage) {
           return right.tagCoverage - left.tagCoverage;
