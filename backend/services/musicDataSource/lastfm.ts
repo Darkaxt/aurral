@@ -81,12 +81,37 @@ const formatTrendingPopularity = (artist: LastfmArtist) => {
   return rank > 0 ? `Trending #${rank} on Last.fm` : "Trending on Last.fm";
 };
 
+// Last.fm error codes that mean the service or this API key is unusable, as
+// opposed to "no such artist" (6). Keys without Pro stop working from
+// 2026-12-01 and answer with these.
+const LASTFM_OUTAGE_ERRORS = new Set([8, 10, 11, 16, 26, 29]);
+const LASTFM_OUTAGE_THRESHOLD = 3;
+const LASTFM_OUTAGE_COOLDOWN_MS = 30 * 60 * 1000;
+
+export const lastfmAvailability = { failures: 0, consecutiveFailures: 0, unavailableUntil: 0 };
+
+export const isLastfmUnavailable = (now = Date.now()) => now < lastfmAvailability.unavailableUntil;
+
+const recordAvailability = (data: LastfmResponse | null) => {
+  if (!data || LASTFM_OUTAGE_ERRORS.has(Number(data.error))) {
+    lastfmAvailability.failures += 1;
+    lastfmAvailability.consecutiveFailures += 1;
+    if (lastfmAvailability.consecutiveFailures >= LASTFM_OUTAGE_THRESHOLD) {
+      lastfmAvailability.unavailableUntil = Date.now() + LASTFM_OUTAGE_COOLDOWN_MS;
+    }
+  } else if (!data.error) {
+    lastfmAvailability.consecutiveFailures = 0;
+    lastfmAvailability.unavailableUntil = 0;
+  }
+};
+
 const callLastfm = async (
   method: string,
   params: LastfmParams,
   { health, signal }: LastfmCallOptions = {},
 ): Promise<LastfmResponse | null> => {
   const data = await lastfmRequest(method, params, { signal }).catch(() => null);
+  if (!signal?.aborted) recordAvailability(data);
   const ok = Boolean(data) && !data.error;
   recordHealth(health, ok);
   return ok ? data : null;

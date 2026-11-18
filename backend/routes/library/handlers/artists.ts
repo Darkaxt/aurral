@@ -62,6 +62,8 @@ export default new Hono<AppEnv>()
   .basePath("/library")
   .get("/artists", cacheFor(120), validate("query", listQuery), (c) => {
     const query = c.req.valid("query");
+    // Lidarr monitoring is mirrored onto library rows; refresh it off the read path.
+    void libraryManager.refreshLidarrArtistState();
     try {
       const limit = Math.min(Math.max(Number.parseInt(query.limit ?? "", 10) || 10000, 1), 10000);
       const offset = Math.max(Number.parseInt(query.offset ?? "", 10) || 0, 0);
