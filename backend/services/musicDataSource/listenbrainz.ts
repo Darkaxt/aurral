@@ -23,6 +23,7 @@ const RESOLVE_CONCURRENCY = 4;
 const TRENDING_ARTIST_COUNT = 100;
 const TRENDING_RECORDING_COUNT = 500;
 const SITEWIDE_STATS_TIMEOUT_MS = 20000;
+const DEEZER_RELATED_LIMIT = 25;
 
 type ListenbrainzTag = { tag?: string; count?: number };
 type ListenbrainzSimilarArtist = { artist_mbid?: string | null; name?: string; score?: number };
@@ -104,22 +105,116 @@ const searchTagArtists = async (
 const getTagArtists = (tag: string, options?: Parameters<typeof searchTagArtists>[1]) =>
   searchTagArtists(tag, options).catch(() => ({ artists: [], hasMore: false }));
 
-const getDeezerSimilarArtists = async (
+type SimilarCandidate = { mbid: string | null; name: string; image: string | null; score: number };
+export type SimilarArtist = Omit<SimilarCandidate, "score"> & { match: number };
+
+const artistNameKey = (name: string) =>
+  name
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/^the\s+/, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+
+/**
+ * Merges similar-artist lists from independent providers. Each candidate
+ * carries its provider's own 0..1 score; an artist several providers name sums
+ * their scores, so agreement outranks any single provider's opinion while a
+ * single-provider list keeps its original proportions. ListenBrainz leans
+ * towards widely played artists and Deezer towards catalogue neighbours.
+ * Pure and deterministic: ties keep first-seen order.
+ */
+export const fuseSimilarArtists = (
+  lists: SimilarCandidate[][],
+  { limit = 50, exclude = [] }: { limit?: number; exclude?: (string | null | undefined)[] } = {},
+): SimilarArtist[] => {
+  const excludedMbids = new Set(exclude.map(normalizeMbid).filter(Boolean));
+  const excludedNames = new Set(
+    exclude
+      .filter((value) => value && !normalizeMbid(value))
+      .map((value) => artistNameKey(text(value))),
+  );
+  const merged = new Map<string, SimilarCandidate & { score: number; order: number }>();
+  const keyByMbid = new Map<string, string>();
+  let order = 0;
+  for (const list of lists) {
+    for (const candidate of list) {
+      const name = text(candidate?.name);
+      const nameKey = name ? artistNameKey(name) : "";
+      if (!nameKey) continue;
+      const mbid = normalizeMbid(candidate.mbid);
+      if ((mbid && excludedMbids.has(mbid)) || excludedNames.has(nameKey)) continue;
+      const key = (mbid && keyByMbid.get(mbid)) || nameKey;
+      const score = Math.max(0, Number(candidate.score) || 0);
+      const existing = merged.get(key);
+      if (existing) {
+        existing.score += score;
+        existing.mbid ||= mbid;
+        existing.image ||= candidate.image || null;
+      } else {
+        merged.set(key, { mbid, name, image: candidate.image || null, score, order: order++ });
+      }
+      if (mbid) keyByMbid.set(mbid, key);
+    }
+  }
+  const ranked = [...merged.values()].sort((a, b) => b.score - a.score || a.order - b.order);
+  const top = ranked[0]?.score || 1;
+  return ranked.slice(0, limit).map(({ mbid, name, image, score }) => ({
+    mbid,
+    name,
+    image,
+    match: score / top,
+  }));
+};
+
+const getListenbrainzSimilarArtists = async (
+  mbid: string,
+  health: SourceHealth | undefined,
+): Promise<SimilarCandidate[]> => {
+  try {
+    const rows: ListenbrainzSimilarArtist[] | undefined = await listenbrainzRequest(
+      "/similar-artists/json",
+      { artist_mbids: mbid, algorithm: LISTENBRAINZ_EXPLORER_SIMILARITY_ALGORITHM },
+      { baseUrl: LISTENBRAINZ_LABS_API },
+    );
+    recordHealth(health, true);
+    const similar = (Array.isArray(rows) ? rows : []).filter((row) => {
+      const similarMbid = normalizeMbid(row?.artist_mbid);
+      return similarMbid && similarMbid !== mbid && text(row?.name);
+    });
+    const topScore = Math.max(0, ...similar.map((row) => Number(row.score) || 0));
+    return similar.map((row) => ({
+      mbid: normalizeMbid(row.artist_mbid),
+      name: text(row.name),
+      image: null,
+      score: topScore > 0 ? (Number(row.score) || 0) / topScore : 0,
+    }));
+  } catch {
+    recordHealth(health, false);
+    return [];
+  }
+};
+
+const getDeezerRelatedArtists = async (
   artist: MusicArtistRef,
   mbid: string | null,
   limit: number,
-) => {
-  const metadata = mbid ? await getArtistByMbid(mbid).catch(() => null) : null;
-  const deezerId =
-    getLinkedDeezerArtistId(metadata?.links) ||
-    (await getDeezerArtist(text(artist?.name) || text(metadata?.name)))?.id;
-  const related = await deezerGetRelatedArtists(deezerId ?? null, { limit }).catch(() => []);
-  return mapWithConcurrency(related, RESOLVE_CONCURRENCY, async (entry, index) => ({
-    mbid: await guessArtistMbid(entry.name),
-    name: entry.name,
-    match: 1 - index / related.length,
-    image: entry.image,
-  }));
+): Promise<SimilarCandidate[]> => {
+  try {
+    const metadata = mbid ? await getArtistByMbid(mbid).catch(() => null) : null;
+    const deezerId =
+      getLinkedDeezerArtistId(metadata?.links) ||
+      (await getDeezerArtist(text(artist?.name) || text(metadata?.name)))?.id;
+    const related = await deezerGetRelatedArtists(deezerId ?? null, { limit });
+    return related.map((entry, index) => ({
+      mbid: null,
+      name: entry.name,
+      image: entry.image,
+      score: 1 - index / related.length,
+    }));
+  } catch {
+    return [];
+  }
 };
 
 export const listenbrainzSource = {
@@ -130,32 +225,18 @@ export const listenbrainzSource = {
     { limit = 50, health }: { limit?: number; health?: SourceHealth } = {},
   ) {
     const mbid = await resolveArtistMbid(artist);
-    if (mbid) {
-      try {
-        const rows: ListenbrainzSimilarArtist[] | undefined = await listenbrainzRequest(
-          "/similar-artists/json",
-          { artist_mbids: mbid, algorithm: LISTENBRAINZ_EXPLORER_SIMILARITY_ALGORITHM },
-          { baseUrl: LISTENBRAINZ_LABS_API },
-        );
-        recordHealth(health, true);
-        const similar = (Array.isArray(rows) ? rows : []).filter((row) => {
-          const similarMbid = normalizeMbid(row?.artist_mbid);
-          return similarMbid && similarMbid !== mbid && text(row?.name);
-        });
-        const topScore = Math.max(0, ...similar.map((row) => Number(row.score) || 0));
-        if (similar.length) {
-          return similar.slice(0, limit).map((row) => ({
-            mbid: normalizeMbid(row.artist_mbid),
-            name: text(row.name),
-            match: topScore > 0 ? (Number(row.score) || 0) / topScore : 0,
-            image: null,
-          }));
-        }
-      } catch {
-        recordHealth(health, false);
-      }
-    }
-    return getDeezerSimilarArtists(artist, mbid, limit);
+    const [listenbrainz, deezer] = await Promise.all([
+      mbid ? getListenbrainzSimilarArtists(mbid, health) : Promise.resolve([]),
+      getDeezerRelatedArtists(artist, mbid, Math.min(limit, DEEZER_RELATED_LIMIT)),
+    ]);
+    const fused = fuseSimilarArtists([listenbrainz, deezer], {
+      limit,
+      exclude: [mbid, text(artist?.name)],
+    });
+    // Only Deezer-only artists lack an MBID; resolution is cached per name.
+    return mapWithConcurrency(fused, RESOLVE_CONCURRENCY, async (entry) =>
+      entry.mbid ? entry : { ...entry, mbid: await guessArtistMbid(entry.name) },
+    );
   },
 
   async getArtistTagLists(artists: MusicArtistRef[], { health }: { health?: SourceHealth } = {}) {

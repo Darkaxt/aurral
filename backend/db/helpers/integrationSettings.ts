@@ -59,6 +59,8 @@ export const integrationSettingsSchema = v.looseObject({
     discoveryAutoRefreshHours: count,
     discoveryRecommendationsPerRefresh: count,
     discoveryMode: text,
+    // "auto" | "lastfm" | "listenbrainz"; see services/musicDataSource/index.ts.
+    musicDataSource: text,
   }),
   slskd: service({
     enabled: flag,

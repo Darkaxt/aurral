@@ -646,6 +646,102 @@ function storedLidarrMonitorOption(
   return followsNewAlbums === (monitorNewItems === "all") ? option : null;
 }
 
+type LidarrArtistStateRow = {
+  id: number;
+  mbid: string | null;
+  identity_key: string;
+  metadata_json: string | null;
+  owner: string | null;
+};
+
+const LIDARR_ARTIST_STATE_COLUMNS = `artist.id, artist.mbid, artist.identity_key, artist.metadata_json,
+  (SELECT management.managed_by FROM library_management AS management
+   WHERE management.entity_kind = 'artist' AND management.entity_id = artist.id) AS owner`;
+const allLidarrArtistStateRowsStmt = db.prepare<[], LidarrArtistStateRow>(
+  `SELECT ${LIDARR_ARTIST_STATE_COLUMNS} FROM library_artists AS artist`,
+);
+const lidarrArtistStateRowsStmt = db.prepare<[string | null, string | null], LidarrArtistStateRow>(
+  `SELECT ${LIDARR_ARTIST_STATE_COLUMNS} FROM library_artists AS artist
+   WHERE artist.mbid = ? OR artist.identity_key = ?`,
+);
+const writeLidarrArtistStateStmt = db.prepare<[string, number, number]>(
+  "UPDATE library_artists SET metadata_json = ?, updated_at = ? WHERE id = ?",
+);
+
+/**
+ * Library artist rows come from file scans, so Lidarr's artist monitoring only
+ * reached them when an artist was added through Aurral. Mirror the monitoring
+ * fields Lidarr reports onto the matching rows so list reads (which must not
+ * call Lidarr) agree with the per-artist endpoints. Ownership (`id`,
+ * `librarySource`, library_management) is deliberately left untouched.
+ * With `complete`, `artists` is Lidarr's full list and rows Lidarr no longer
+ * knows lose their mirrored state.
+ */
+export function persistLidarrArtistState(
+  artists: MappedLidarrArtist[],
+  { complete = false }: { complete?: boolean } = {},
+) {
+  const byKey = new Map<string, MappedLidarrArtist>();
+  for (const artist of artists) {
+    if (!artist) continue;
+    if (artist.mbid) byKey.set(`mbid:${artist.mbid}`, artist);
+    if (artist.foreignArtistId) {
+      byKey.set(`id:${buildIdentityKey("lidarr-artist", artist.foreignArtistId)}`, artist);
+      if (UUID_REGEX.test(artist.foreignArtistId))
+        byKey.set(`mbid:${artist.foreignArtistId}`, artist);
+    }
+  }
+  const rows = complete
+    ? allLidarrArtistStateRowsStmt.all()
+    : artists.flatMap((artist) =>
+        lidarrArtistStateRowsStmt.all(
+          artist?.mbid || artist?.foreignArtistId || null,
+          artist?.foreignArtistId
+            ? buildIdentityKey("lidarr-artist", artist.foreignArtistId)
+            : null,
+        ),
+      );
+  const timestamp = Date.now();
+  let changed = 0;
+  db.transaction(() => {
+    const seen = new Set<number>();
+    for (const row of rows) {
+      if (seen.has(row.id) || row.owner === "aurral") continue;
+      seen.add(row.id);
+      const metadata = readRawLibraryMetadata(row.metadata_json);
+      const state =
+        (row.mbid && byKey.get(`mbid:${row.mbid}`)) || byKey.get(`id:${row.identity_key}`) || null;
+      const next = { ...metadata };
+      if (state) {
+        const monitored = state.monitored === true;
+        next.monitored = monitored;
+        next.monitorNewItems = state.monitorNewItems || "none";
+        if (!monitored) next.monitor = "none";
+        else if (state.monitorOption && state.monitorOption !== "none")
+          next.monitor = state.monitorOption;
+        if (state.id) next.lidarrArtistId = state.id;
+      } else if (complete && metadata.lidarrArtistId != null) {
+        delete next.lidarrArtistId;
+        next.monitored = false;
+        next.monitor = "none";
+      } else {
+        continue;
+      }
+      const before = JSON.stringify(metadata);
+      const after = JSON.stringify(next);
+      if (before === after) continue;
+      writeLidarrArtistStateStmt.run(after, timestamp, row.id);
+      changed += 1;
+    }
+  })();
+  if (changed > 0) invalidateLibraryQueryCache();
+  return changed;
+}
+
+let _lidarrStateSyncedAt = 0;
+let _lidarrStateFailedAt = 0;
+let _lidarrStateInflight: Promise<void> | null = null;
+
 function recordLidarrOwner(
   lidarrArtist: LidarrArtist,
   lidarrAlbum: LidarrAlbumRecord | null = null,
@@ -999,6 +1095,13 @@ function upsertCachedArtist(mappedArtist: MappedLidarrArtist) {
   const existingIndex = _cachedArtists.findIndex(
     (artist) => artist?.mbid === mbid || artist?.foreignArtistId === mbid,
   );
+  try {
+    persistLidarrArtistState([mappedArtist]);
+  } catch (error) {
+    logger.warn("library", "Could not record Lidarr artist monitoring", {
+      message: asAppError(error)?.message || String(error),
+    });
+  }
   if (existingIndex >= 0) {
     _cachedArtists[existingIndex] = mappedArtist;
     return;
@@ -1771,6 +1874,41 @@ export class LibraryManager {
     return [...iterateLibraryArtistProjection({ pageSize: 100 })];
   }
 
+  /**
+   * Keeps the mirrored Lidarr monitoring on library rows fresh without making
+   * list reads wait on Lidarr. Unlike syncLidarrArtists it schedules no library
+   * rescan, so callers on hot read paths may invoke it fire-and-forget.
+   */
+  refreshLidarrArtistState({ force = false }: { force?: boolean } = {}) {
+    if (_lidarrStateInflight) return _lidarrStateInflight;
+    const now = Date.now();
+    if (!force && now - _lidarrStateSyncedAt < ARTIST_LIST_CACHE_TTL_MS) return Promise.resolve();
+    if (!force && now - _lidarrStateFailedAt < LIDARR_RETRY_MS) return Promise.resolve();
+    _lidarrStateInflight = (async () => {
+      const lidarr = await getLidarrClient();
+      if (!lidarr || !lidarr.isConfigured()) return;
+      const lidarrArtists = await lidarr.getArtists();
+      persistLidarrArtistState(
+        lidarrArtists.map((artist) => this.mapLidarrArtist(artist)),
+        { complete: true },
+      );
+      _lidarrStateSyncedAt = Date.now();
+      _lidarrStateFailedAt = 0;
+    })()
+      .catch((error) => {
+        if (_lidarrStateFailedAt === 0) {
+          logger.warn("library", "Could not refresh Lidarr artist monitoring", {
+            message: asAppError(error)?.message || String(error),
+          });
+        }
+        _lidarrStateFailedAt = Date.now();
+      })
+      .finally(() => {
+        _lidarrStateInflight = null;
+      });
+    return _lidarrStateInflight;
+  }
+
   async syncLidarrArtists({ forceRefresh = false } = {}) {
     if (
       forceRefresh !== true &&
@@ -1800,6 +1938,14 @@ export class LibraryManager {
           await this.backfillLidarrArtistMappings(lidarrArtists);
           _cachedArtists = lidarrArtists.map((a) => this.mapLidarrArtist(a));
           _artistsCachedAt = Date.now();
+          try {
+            persistLidarrArtistState(_cachedArtists, { complete: true });
+            _lidarrStateSyncedAt = _artistsCachedAt;
+          } catch (error) {
+            logger.warn("library", "Could not record Lidarr artist monitoring", {
+              message: asAppError(error)?.message || String(error),
+            });
+          }
           scheduleLibraryReconciliation();
           import("./unifiedSearchService.ts")
             .then(({ clearSearchContextCache }) => clearSearchContextCache())
