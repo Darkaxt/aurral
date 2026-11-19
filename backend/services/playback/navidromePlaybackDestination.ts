@@ -8,6 +8,7 @@ import { NavidromeClient } from "../navidrome.ts";
 import { logger } from "../logger.ts";
 import { getPathMappings, resolveLocalPath, resolveRemotePath } from "../pathMappings.ts";
 import { navidromePlaylistPointerStore } from "../navidrome/navidromePlaylistPointerStore.ts";
+import { isManagedLegacyFlowPlaylist } from "./legacyNavidromeSmartPlaylist.ts";
 import { claimUnmatchedRootWarning, serverScanTargets } from "./playbackScanFolders.ts";
 import { AURRAL_FLOWS_DIR, PLAYLIST_FILES_DIR, resolveDownloadRoot } from "../downloadPaths.ts";
 import { flowPlaylistConfig } from "../playlists/flowPlaylistConfig.ts";
@@ -572,7 +573,16 @@ export class NavidromePlaybackDestination {
         navidromePlaylistPointerStore.setPointer(snapshot.entityId, targetKey, pointer);
       }
     }
+    const managedSmart = pointer?.playlistId
+      ? await isManagedLegacyFlowPlaylist(
+          this.downloadRoot,
+          pointer.playlistId,
+          snapshot.entityId,
+          this._getEntity(snapshot.entityId)?.name || "",
+        )
+      : false;
     if (
+      !managedSmart &&
       pointer?.title &&
       pointer.title !== current &&
       typeof this.client.renamePlaylist === "function"
@@ -613,6 +623,24 @@ export class NavidromePlaybackDestination {
     }
     if (pointer && hasUnresolvedSongs && !songIds.length) {
       return playbackOperationSuccess({ pending: true });
+    }
+    if (managedSmart && pointer?.playlistId) {
+      // The .nsp rules own membership (and keep earlier weeks' members), so the
+      // list is never rewritten, renamed or duplicated. Publishing only checks
+      // that every requested song is reflected, and stays pending until the
+      // scanner has picked the new files up.
+      if (hasUnresolvedSongs) return playbackOperationSuccess({ pending: true });
+      const reflected = await this.client.getPlaylist(pointer.playlistId);
+      const entries = Array.isArray(reflected?.entry)
+        ? reflected.entry
+        : reflected?.entry
+          ? [reflected.entry]
+          : [];
+      const present = new Set(entries.map((entry: { id: string }) => entry.id));
+      if (!songIds.every((id) => present.has(id)))
+        return playbackOperationSuccess({ pending: true });
+      if (configGeneration === this._configGeneration) this._syncHashes.set(syncKey, syncHash);
+      return playbackOperationSuccess();
     }
 
     let playlist = null;
