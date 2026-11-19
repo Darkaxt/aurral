@@ -48,7 +48,7 @@ export const app = new Hono<AppEnv>({ strict: false })
   .use("/api/auth/oidc/login", signInLimit)
   .use("/api/auth/oidc/exchange", signInLimit)
   .use("/api/users/me/password", signInLimit)
-  .all("/api/weekly-flow/*", (c) => {
+  .all("/api/weekly-flow/*", (c): Response | Promise<Response> => {
     noteDeprecatedUsage("weekly-flow-api");
     const { pathname, search } = new URL(c.req.url);
     const rest = pathname.slice("/api/weekly-flow".length) || "/";
@@ -63,7 +63,10 @@ export const app = new Hono<AppEnv>({ strict: false })
         ? {}
         : { body: c.req.raw.body, duplex: "half" as const }),
     });
-    return app.fetch(request, c.env);
+    return (app as { fetch: (request: Request, env: unknown) => Response | Promise<Response> }).fetch(
+      request,
+      c.env,
+    );
   })
   .route("/api", api)
   .route("/", subsonic)

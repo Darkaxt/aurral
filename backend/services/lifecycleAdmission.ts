@@ -102,7 +102,7 @@ export async function releaseCompletedLifecycleReservations(jobs:any[]=[]) {
   try {
     const {db:native}=await import('../config/db-sqlite.ts');
     const observed=new Map(jobs.map(job=>[job.id,job.status]));
-    releaseCompletedInDatabase(db,id=>observed.get(id)||native.prepare('SELECT status FROM playlist_download_jobs WHERE id=?').get(id)?.status);
+    releaseCompletedInDatabase(db,id=>observed.get(id)||(native.prepare('SELECT status FROM playlist_download_jobs WHERE id=?').get(id) as {status?:string}|undefined)?.status);
   } finally {db.close();}
 }
 

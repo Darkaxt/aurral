@@ -1240,7 +1240,7 @@ async function handleDownload(payload: SlskdPayload, helpers: SlskdHelpers) {
         return transfers;
       });
     } catch (error) {
-      if (isLifecycleHold(error)) return { ...payload, delaySeconds: 60, lifecycleHold: error.message };
+      if (isLifecycleHold(error)) return { ...payload, delaySeconds: 60, lifecycleHold: (error as Error).message };
       if (isSoulseekLoggedOutError(error))
         return waitForSoulseekLogin(payload, job, helpers, asAppError(error)?.message);
       return (
@@ -1295,7 +1295,7 @@ async function handleDownload(payload: SlskdPayload, helpers: SlskdHelpers) {
       return { transferId, username: transferUsername };
     });
   } catch (error) {
-    if (isLifecycleHold(error)) return { ...payload, delaySeconds: 60, lifecycleHold: error.message };
+    if (isLifecycleHold(error)) return { ...payload, delaySeconds: 60, lifecycleHold: (error as Error).message };
     if (isSoulseekLoggedOutError(error))
       return waitForSoulseekLogin(payload, job, helpers, asAppError(error)?.message);
     const message = asAppError(error)?.message || String(error);
