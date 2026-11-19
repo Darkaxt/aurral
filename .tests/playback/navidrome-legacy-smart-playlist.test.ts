@@ -166,10 +166,10 @@ test("refuses a smart playlist whose source is a different file", async () => {
   const flow = await setUpFlow("Workout", { linkSource: false });
   const client = new SmartClient();
   client.members = ["song-A"];
-  await assert.rejects(
-    publish(new Destination(client), flow.id, ["A"]),
-    /not this flow's managed file/,
-  );
+  // publishPlaylist reports the refusal as a failed operation, not a throw.
+  const result = await publish(new Destination(client), flow.id, ["A"]);
+  assert.equal(result.ok, false);
+  assert.match(String(result.error?.message), /not this flow's managed file/);
   assert.deepEqual(client.mutations, []);
 });
 
