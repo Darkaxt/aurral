@@ -1,3 +1,4 @@
+import { withLifecycleJob, lifecycleSourceAllowed } from "./lifecycleAdmission.ts";
 import fs from "fs/promises";
 import { asAppError } from "../../lib/errors.ts";
 import { getDownloadClient } from "./download/downloadClientSettings.ts";
@@ -481,7 +482,7 @@ export async function processPipelinePayload(payload: PipelinePayload) {
     throw new Error("Invalid pipeline payload");
   }
   keepHeldForReview(payload);
-  const nextPayload = await processSourcePayload(payload);
+  const nextPayload = await withLifecycleJob(payload, downloadTracker.getJob(payload.jobId), () => processSourcePayload(payload), payload.albumGrab === true ? albumGrabJobs(payload).map(entry => entry.id) : [payload.jobId]);
   keepHeldForReview(nextPayload);
   await settleDroppedAlbumGrab(payload, nextPayload);
   if (nextPayload?.jobId !== payload.jobId) await discardHeldForReview(payload);
@@ -540,6 +541,7 @@ async function processSourcePayload(payload: PipelinePayload): Promise<PipelineP
     return processSourcePayload(nextPayload);
   }
   const { source } = payload;
+  lifecycleSourceAllowed(source, payload.phase);
   if (payload.albumGrab === true && ["search", "finalize"].includes(payload.phase) && currentJob) {
     if (await attemptRelease(payload, currentJob)) {
       if (payload.releaseWaits) payload = { ...payload, releaseWaits: null, delaySeconds: 0 };

@@ -3,8 +3,9 @@ import type { ListenHistorySourcesRow } from "../db/rows.ts";
 import { isOwnKey } from "../../lib/ownKey.ts";
 import { validateExternalUrl } from "../middleware/urlValidator.ts";
 import { normalizeKoitoBaseUrl } from "./koitoClient.ts";
+import { requireNavidromeHistoryAccount, NavidromeHistoryError } from "./navidromeHistory.ts";
 
-export const LISTEN_HISTORY_PROVIDERS = ["lastfm", "listenbrainz", "koito"] as const;
+export const LISTEN_HISTORY_PROVIDERS = ["lastfm", "listenbrainz", "koito", "navidrome"] as const;
 export type ListenHistoryProvider = (typeof LISTEN_HISTORY_PROVIDERS)[number];
 export type ListenHistory = Record<ListenHistoryProvider, string | null>;
 
@@ -21,16 +22,23 @@ const deleteStmt = db.prepare<[number, string]>(
 );
 
 export function getListenHistory(userId: number) {
-  const history: ListenHistory = { lastfm: null, listenbrainz: null, koito: null };
+  const history: ListenHistory = { lastfm: null, listenbrainz: null, koito: null, navidrome: null };
   for (const { provider, account } of selectStmt.all(userId)) {
     if (isOwnKey(history, provider)) history[provider] = account;
   }
   return history;
 }
 
-function normalizeAccount(provider: ListenHistoryProvider, value: string | null | undefined) {
+function normalizeAccount(userId: number, provider: ListenHistoryProvider, value: string | null | undefined) {
   const trimmed = value?.trim();
   if (!trimmed) return null;
+  if (provider === "navidrome") {
+    try { return requireNavidromeHistoryAccount(userId, trimmed); }
+    catch (error) {
+      if (error instanceof NavidromeHistoryError) throw new ListenHistoryError(error.message);
+      throw error;
+    }
+  }
   if (provider !== "koito") return trimmed;
   const validation = validateExternalUrl(trimmed);
   if (!validation.valid) throw new ListenHistoryError(validation.error || "Invalid Koito URL");
@@ -48,7 +56,7 @@ export function updateListenHistory(userId: number, updates: Partial<ListenHisto
   const current = getListenHistory(userId);
   const changes = Object.fromEntries(
     LISTEN_HISTORY_PROVIDERS.filter((provider) => provider in updates)
-      .map((provider) => [provider, normalizeAccount(provider, updates[provider])] as const)
+      .map((provider) => [provider, normalizeAccount(userId, provider, updates[provider])] as const)
       .filter(([provider, account]) => current[provider] !== account),
   );
   if (Object.keys(changes).length > 0) writeListenHistory(userId, changes);

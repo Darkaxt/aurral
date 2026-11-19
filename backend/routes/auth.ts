@@ -8,7 +8,7 @@ import {
   touchReauth,
 } from "../config/session-helpers.ts";
 import { requireAdmin, requireAuth, requireRecentAuth } from "../middleware/guards.ts";
-import { getApiKey, isApiKeyManagedByEnv, rotateApiKey } from "../middleware/auth.ts";
+import { getApiKey, isApiKeyManagedByEnv, rotateApiKey, toResolvedUser } from "../middleware/auth.ts";
 import { hashPassword, verifyPassword, needsRehash } from "../middleware/passwordHash.ts";
 import { validate } from "../middleware/validate.ts";
 import type { AppEnv } from "../middleware/requestUser.ts";
@@ -97,7 +97,7 @@ export default new Hono<AppEnv>()
             id: user.id,
             username: user.username,
             role: user.role,
-            permissions: user.permissions,
+            permissions: toResolvedUser(user)!.permissions,
           },
         },
         200,
@@ -116,10 +116,8 @@ export default new Hono<AppEnv>()
   .get("/me", requireAuth, (c) => {
     const token = bearerToken(c);
     const session = token ? getSessionByToken(token) : null;
-    if (!session?.user) {
-      return c.json({ user: c.var.user, expiresAt: null }, 200);
-    }
-    return c.json({ user: session.user, expiresAt: session.expiresAt }, 200);
+    // The request resolver owns effective permissions, including old sessions.
+    return c.json({ user: c.var.user, expiresAt: session?.expiresAt ?? null }, 200);
   })
   .post("/reauth", requireAuth, validate("json", reauthBody), (c) => {
     const token = bearerToken(c);
@@ -317,7 +315,7 @@ export default new Hono<AppEnv>()
             id: user.id,
             username: user.username,
             role: user.role,
-            permissions: user.permissions,
+            permissions: toResolvedUser(user)!.permissions,
           },
         },
         200,

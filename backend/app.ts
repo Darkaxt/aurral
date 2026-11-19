@@ -52,7 +52,18 @@ export const app = new Hono<AppEnv>({ strict: false })
     noteDeprecatedUsage("weekly-flow-api");
     const { pathname, search } = new URL(c.req.url);
     const rest = pathname.slice("/api/weekly-flow".length) || "/";
-    return c.redirect(`/api/playlists${rest}${search}`, 308);
+    // Preserve legacy mutation methods/bodies. Existing clients cannot be
+    // required to follow a redirect for POST requests during a server update.
+    const target = new URL(`/api/playlists${rest}${search}`, c.req.url);
+    const request = new Request(target, {
+      method: c.req.method,
+      headers: c.req.raw.headers,
+      signal: c.req.raw.signal,
+      ...(c.req.method === "GET" || c.req.method === "HEAD"
+        ? {}
+        : { body: c.req.raw.body, duplex: "half" as const }),
+    });
+    return app.fetch(request, c.env);
   })
   .route("/api", api)
   .route("/", subsonic)

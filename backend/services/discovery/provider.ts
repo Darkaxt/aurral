@@ -56,6 +56,7 @@ import {
 import { buildTagProfile, collectSeedTags, type SourceHealth } from "./tasteProfile.ts";
 import { buildRecommendationsFromSeeds } from "./recommendations.ts";
 import { getTopPlayedArtists } from "../playEventService.ts";
+import { getNavidromeTopArtists } from "../navidromeHistory.ts";
 import { getTopSpotifyImportArtists } from "../spotify/spotifyImport.ts";
 
 const USER_REFRESH_STAGGER_SECONDS = 15;
@@ -141,11 +142,16 @@ export const enqueueAllUserDiscoveryRefreshes = (reason: string) => {
 
 type ListenHistoryArtist = { mbid: string | null; artistName: string; playcount: number };
 
-const fetchListenHistoryArtists = async (
+export const fetchListenHistoryArtists = async (
   provider: ListenHistoryProvider,
   account: string,
   discoveryPeriod: string,
+  userId?: number,
 ): Promise<ListenHistoryArtist[]> => {
+  if (provider === "navidrome") {
+    if (userId == null) throw new Error("Aurral user identity is required for Navidrome history");
+    return getNavidromeTopArtists(userId, account, discoveryPeriod);
+  }
   if (provider === "listenbrainz") {
     const data = await listenbrainzRequest(`/1/stats/user/${encodeURIComponent(account)}/artists`, {
       count: 50,
@@ -410,11 +416,15 @@ const collectUserSeeds = async (user: DiscoveryUser, feedback: DiscoveryFeedback
   const externalHistory = await Promise.all(
     LISTEN_HISTORY_PROVIDERS.map(async (provider) => {
       const account = history[provider];
+      if (history.navidrome && provider === "lastfm") return [];
       if (!account || period === "none") return [];
       try {
-        const artists = await fetchListenHistoryArtists(provider, account, period);
+        const artists = await fetchListenHistoryArtists(provider, account, period, user.id);
         return artists.map((artist) => ({ ...artist, source: provider }));
       } catch (error) {
+          // A configured local authority becoming unavailable must preserve the
+          // prior recommendation cache, rather than rebuild from zero history.
+          if (provider === "navidrome") throw error;
         logger.error(
           "discovery",
           `[Discovery] Failed to fetch ${provider} artists for user ${user.id}: ${asAppError(error)?.message}`,
@@ -423,7 +433,7 @@ const collectUserSeeds = async (user: DiscoveryUser, feedback: DiscoveryFeedback
       }
     }),
   );
-  const localHistory = getTopPlayedArtists(user.id, { limit: 50 }).map((artist) => ({
+  const localHistory = (history.navidrome ? [] : getTopPlayedArtists(user.id, { limit: 50 })).map((artist) => ({
     ...artist,
     source: "local",
   }));

@@ -1,3 +1,4 @@
+import { lifecycleBatch } from "./lifecycleAdmission.ts";
 import * as v from "valibot";
 import axios from "../../lib/axiosFetch.ts";
 import { randomUUID } from "crypto";
@@ -1023,6 +1024,7 @@ export class SlskdClient {
         filename: String(file.filename || file.file || "").trim(),
         size: Number(file.size || 0),
       }));
+      return lifecycleBatch(normalizedUsername, requests, async () => {
       let retryCount = 0;
       let delaySeconds = 30;
       while (retryCount <= 3) {
@@ -1034,7 +1036,7 @@ export class SlskdClient {
             endpoint,
           });
           if (requests.length > 0 && failed.length >= requests.length && transfers.length === 0) {
-            throw new Error(`slskd enqueue failed: ${summarizeBatchFailures(failed)}`);
+            throw Object.assign(new Error(`slskd enqueue failed: ${summarizeBatchFailures(failed)}`), { lifecycleDefiniteReject: true });
           }
           return {
             transferId: transfers[0]?.id || null,
@@ -1050,10 +1052,15 @@ export class SlskdClient {
         }
         const detail = `HTTP ${response.status} ${String(response.data || "")}`;
         if (/must be connected and logged in/i.test(detail))
-          throw soulseekLoggedOutError(`enqueue refused (${detail})`);
-        throw new Error(`slskd enqueue failed: ${detail}`);
+          throw Object.assign(soulseekLoggedOutError(`enqueue refused (${detail})`), { lifecycleDefiniteReject: response.status >= 400 && response.status < 500 });
+        throw Object.assign(new Error(`slskd enqueue failed: ${detail}`), { lifecycleDefiniteReject: response.status >= 400 && response.status < 500 });
       }
       throw new Error("slskd enqueue busy after retries");
+      }, async () => {
+        const result = await client.get("/api/v0/transfers/downloads");
+        if (result.status !== 200) throw new Error("Cannot observe original transfers");
+        return result.data;
+      });
     });
   }
 

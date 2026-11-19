@@ -5,6 +5,7 @@ import type { LibraryArtistsRow, LibraryEntityGenresRow, PlayEventsRow } from ".
 import { lastfmRequest } from "../apiClients/lastfm.ts";
 import { listenbrainzRequest } from "../apiClients/listenbrainz.ts";
 import { getListenHistory } from "../listeningHistory.ts";
+import { hasNavidromeHistoryMapping, readNavidromePlays } from "../navidromeHistory.ts";
 import { scrobbleConnectionStore } from "../scrobbleConnectionStore.ts";
 import { normalizeKoitoBaseUrl } from "../koitoClient.ts";
 import { NavidromeClient } from "../navidrome.ts";
@@ -370,12 +371,12 @@ export async function collectWrappedHistory(userId: number, period: Period) {
   const connections = scrobbleConnectionStore.getConnections(userId);
   const history = getListenHistory(userId);
   const readers: { source: Source; read: (page: number) => Promise<Page> }[] = [];
-  const local = readLocalWrappedHistory(userId, period);
+  const local = history.navidrome ? [] : readLocalWrappedHistory(userId, period);
   readers.push({
     source: "aurral",
     read: async () => ({ plays: local, more: local.length > MAX_PLAYS }),
   });
-  const lastfm = connections.lastfm?.displayName || history.lastfm;
+  const lastfm = history.navidrome ? null : connections.lastfm?.displayName || history.lastfm;
   if (lastfm) readers.push({ source: "lastfm", read: lastfmWrappedReader(lastfm, period) });
   const listenbrainz = connections.listenbrainz?.displayName || history.listenbrainz;
   if (listenbrainz)
@@ -388,7 +389,7 @@ export async function collectWrappedHistory(userId: number, period: Period) {
     readers.push({ source: "koito", read: koitoReader(koito, connections.koito?.token, period) });
   const soleUser = userOps.getAllUsers().length === 1;
   const navidrome = settings.integrations?.navidrome;
-  if (navidrome?.url && (soleUser || sameAccount(navidrome.username || "", user.username))) {
+  if (!hasNavidromeHistoryMapping(userId) && navidrome?.url && (soleUser || sameAccount(navidrome.username || "", user.username))) {
     readers.push({
       source: "navidrome",
       read: navidromeReader(
@@ -452,6 +453,15 @@ export async function collectWrappedHistory(userId: number, period: Period) {
   const results = await Promise.all(
     readers.map(({ source, read }) => readWrappedSource(source, read)),
   );
+  if (history.navidrome) {
+    try {
+      const plays = readNavidromePlays(userId, history.navidrome, period);
+      const valid = plays.filter((play) => play.title && play.artist && Number.isFinite(play.playedAt));
+      results.push({ plays: valid, status: { source: "navidrome", state: valid.length === plays.length ? "ready" : "partial", plays: valid.length } });
+    } catch {
+      results.push({ plays: [], status: { source: "navidrome", state: "unavailable", plays: 0 } });
+    }
+  }
   return {
     plays: results.flatMap((result) => result.plays),
     sources: results.map((result) => result.status),

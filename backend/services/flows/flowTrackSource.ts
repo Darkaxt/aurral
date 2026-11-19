@@ -305,7 +305,7 @@ export class FlowTrackSource {
     return String(value || "")
       .normalize("NFKD")
       .toLowerCase()
-      .replace(/[’‘`]/g, "'")
+      .replace(/[â€™â€˜`]/g, "'")
       .replace(/&/g, " and ")
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .replace(/\s+/g, " ")
@@ -1009,6 +1009,11 @@ export class FlowTrackSource {
       })),
     ]);
     const pool = new Map<string, HarvestArtist>();
+    // Retain the maintained fork's explicit focus-artist preference.
+    for (const name of seeds) {
+      const key = this._artistKey(name);
+      if (key && !pool.has(key)) pool.set(key, { name, artistMbid: null, reason: "Focus artist" });
+    }
     const deepest = Math.max(0, ...groups.map((group) => group.artists.length));
     for (let rank = 0; rank < deepest; rank += 1) {
       for (const { reason, artists } of groups) {

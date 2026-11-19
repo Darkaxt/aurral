@@ -1,3 +1,4 @@
+import { captureLifecycleSelection } from "../lifecycleProtection.ts";
 import path from "path";
 import fs from "fs/promises";
 import { constants as fsConstants } from "fs";
@@ -580,9 +581,9 @@ export class PlaylistManager {
         ? playlistTypes
         : flowPlaylistConfig.getFlows().map((flow) => flow.id);
     const fallbackDir = path.join(this.downloadRoot, "_fallback");
-    const deletionGuard = protectPlayback
-      ? createPlaybackDeletionGuard({ excludeEntityIds: targets, playlistRoot: this.downloadRoot })
-      : { canDelete: async () => true };
+    const deletionGuard = createPlaybackDeletionGuard({
+      excludeEntityIds: targets, playlistRoot: this.downloadRoot, protectReferences: protectPlayback,
+    });
     try {
       await removeUnusedPlaybackFiles(fallbackDir, deletionGuard, { protectPlayback });
     } catch {}
@@ -596,6 +597,7 @@ export class PlaylistManager {
         () => false,
       );
       const jobs = downloadTracker.getByPlaylistId(playlistType);
+      await captureLifecycleSelection(playlistType, jobs);
       for (const job of jobs) {
         if (job.downloadClient === "ytdlp") {
           await getDownloadClient("ytdlp").cleanupStaging(job.id);

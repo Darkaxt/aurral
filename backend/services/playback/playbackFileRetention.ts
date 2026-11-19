@@ -1,3 +1,4 @@
+import { lifecycleProtectionReason } from "../lifecycleProtection.ts";
 import * as v from "valibot";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -45,9 +46,11 @@ export function createPlaybackDeletionGuard({
   excludeEntityIds = [],
   registry = null,
   playlistRoot = resolveDownloadRoot(),
+  protectReferences = true,
 }: {
   excludeEntityIds?: string[];
   registry?: PlaybackDestinationRegistry | null;
+  protectReferences?: boolean;
   playlistRoot?: string;
 } = {}) {
   const retentionRoot = path.resolve(playlistRoot);
@@ -63,6 +66,7 @@ export function createPlaybackDeletionGuard({
   let checkedConfig: string | undefined;
   const load = async () => {
     checkedConfig = configKey();
+    if (!protectReferences) return new Set();
     let currentRegistry = registry;
     if (!currentRegistry) {
       const { playlistManager } = await import("../playlists/playlistManager.ts");
@@ -88,12 +92,13 @@ export function createPlaybackDeletionGuard({
           return { error };
         });
       const result = await snapshot;
-      const reason =
+      const lifecycleReason = await lifecycleProtectionReason(file);
+      const reason = lifecycleReason || (
         result.error || checkedConfig !== configKey()
           ? "usage-unknown"
           : result.paths.has(localFileKey(file))
             ? "playlist-reference"
-            : null;
+            : null);
       if (reason && retain) recordRetention(file, reason, excludeEntityIds, retentionRoot);
       return reason == null;
     },
@@ -173,7 +178,7 @@ export async function removeUnusedPlaybackFiles(
     throw error;
   }
   if (stat.isSymbolicLink()) {
-    if (!protectPlayback) {
+    if (!protectPlayback && process.env.AURRAL_LIFECYCLE_ENABLED !== "true") {
       await fs.unlink(directory);
       forgetPlaybackRetainedFile(directory);
     }

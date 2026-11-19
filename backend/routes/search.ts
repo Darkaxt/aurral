@@ -25,6 +25,21 @@ const catalogQuery = v.object({
 
 export default new Hono<AppEnv>()
   .basePath("/search")
+  .get(
+    "/artists",
+    noCache,
+    validate("query", v.object({ query: text, limit: text, offset: text })),
+    async (c) => {
+      try {
+        const { query = "", limit, offset } = c.req.valid("query");
+        if (!query.trim()) return c.json({ error: "query parameter is required" }, 400);
+        const result = await searchArtists(query, limit, offset);
+        return c.json({ artists: result.items, count: result.count, offset: result.offset }, 200);
+      } catch (error) {
+        return c.json({ error: "Failed to search", message: asAppError(error)?.message }, 500);
+      }
+    },
+  )
   .get("/", noCache, validate("query", catalogQuery), async (c) => {
     try {
       const {

@@ -319,6 +319,21 @@ function ServiceDetail({ provider }: { provider: ScrobbleProvider }) {
   );
 }
 
+function NavidromeHistoryDetail() {
+  const { history, save } = useListenHistory();
+  return (
+    <SettingsPage title="Navidrome" back="Listening">
+      <SettingsGroup title="Listening history" note="Use your Navidrome listening activity for recommendations and listening summaries. Scrobbling is not required.">
+        <SettingsRow label="Navidrome username" htmlFor="navidrome-history-account" help="Use the listening account assigned to your Aurral user. Clear it to stop using this history.">
+          <SettingsCommitInput id="navidrome-history-account" autoComplete="off"
+            disabled={!history} value={history?.navidrome ?? ""}
+            onCommit={(value) => save({ navidrome: value.trim() || null })} />
+        </SettingsRow>
+      </SettingsGroup>
+    </SettingsPage>
+  );
+}
+
 function ResetTastesRow() {
   const { showSuccess, showError } = useToast();
   const [resetting, setResetting] = useState(false);
@@ -490,6 +505,7 @@ export function ListeningSection() {
   const { data: spotify } = useQuery(spotifyHistoryQueryOptions(user?.id));
 
   if (provider) return <ServiceDetail provider={provider} />;
+  if (item === "navidrome") return <NavidromeHistoryDetail />;
   if (item === "spotify") return <SpotifyDetail />;
 
   return (
@@ -518,6 +534,8 @@ export function ListeningSection() {
             }
           />
         ))}
+        <SettingsServiceRow to="listening/navidrome" name="Navidrome"
+          status={history ? { label: history.navidrome ? `History · ${history.navidrome}` : "Not set up", tone: history.navidrome ? undefined : "muted" } : null} />
         <SettingsServiceRow
           to="listening/spotify"
           name="Spotify"

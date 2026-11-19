@@ -246,6 +246,10 @@ export async function processSystemTask(
       return;
     }
     case "playlist-startup-migration": {
+      if (process.env.AURRAL_PRESERVE_LEGACY_MEDIA_LAYOUT === "true") {
+        console.info("[Maintenance] Preserving existing media paths and bytes; automatic filesystem/tag migration is disabled.");
+        return;
+      }
       const [
         migrationModule,
         { ensurePlaylistFilesystemLayout },
@@ -325,6 +329,10 @@ export async function processSystemTask(
       return;
     }
     case "identity-marker-migration": {
+      if (process.env.AURRAL_PRESERVE_LEGACY_MEDIA_LAYOUT === "true") {
+        console.info("[Maintenance] Preserving existing media paths and bytes; automatic filesystem/tag migration is disabled.");
+        return;
+      }
       const { migrateIdentityMarkers } = await import("./identityMarkerMigration.ts");
       const result = await migrateIdentityMarkers();
       if (result.moved > 0 || result.failed > 0) {
