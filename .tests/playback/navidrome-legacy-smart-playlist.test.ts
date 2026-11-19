@@ -90,14 +90,15 @@ class Destination extends NavidromePlaybackDestination {
   }
 }
 
-async function setUpFlow({ linkSource = true, title = "Discover" } = {}) {
-  const flow = flowPlaylistConfig.createFlow({ name: "Discover" });
+// Flows persist across tests in the shared config, so each test uses its own name.
+async function setUpFlow(name: string, { linkSource = true, title = name } = {}) {
+  const flow = flowPlaylistConfig.createFlow({ name });
   const rules = JSON.stringify({
     all: [{ is: { library_id: 1 } }, { contains: { filepath: flow.id } }],
     sort: "filepath",
   });
-  const source = path.join(downloadRoot!, "AurralFlows", "[A] Discover.nsp");
-  const native = path.join(nativeRoot, "AurralFlows", "[A] Discover.nsp");
+  const source = path.join(downloadRoot!, "AurralFlows", `[A] ${name}.nsp`);
+  const native = path.join(nativeRoot, "AurralFlows", `[A] ${name}.nsp`);
   await fs.mkdir(path.dirname(source), { recursive: true });
   await fs.mkdir(path.dirname(native), { recursive: true });
   await fs.writeFile(source, rules);
@@ -107,7 +108,7 @@ async function setUpFlow({ linkSource = true, title = "Discover" } = {}) {
   metadata.exec("CREATE TABLE playlist (id TEXT PRIMARY KEY, path TEXT, sync INTEGER, rules TEXT)");
   metadata
     .prepare("INSERT INTO playlist VALUES ('smart-1', ?, 1, ?)")
-    .run("/navidrome-music/AurralFlows/[A] Discover.nsp", rules);
+    .run(`/navidrome-music/AurralFlows/[A] ${name}.nsp`, rules);
   metadata.close();
   dbOps.updateSettings({
     pathMappings: [{ source: "navidrome", remote: "/navidrome-music", local: nativeRoot }],
@@ -147,7 +148,7 @@ afterAll(async () => {
 });
 
 test("verifies a rule-managed flow playlist through a second mount without editing it", async () => {
-  const flow = await setUpFlow({ title: "admin - Discover" });
+  const flow = await setUpFlow("Discover", { title: "admin - Discover" });
   const client = new SmartClient();
   const destination = new Destination(client);
 
@@ -162,7 +163,7 @@ test("verifies a rule-managed flow playlist through a second mount without editi
 });
 
 test("refuses a smart playlist whose source is a different file", async () => {
-  const flow = await setUpFlow({ linkSource: false });
+  const flow = await setUpFlow("Workout", { linkSource: false });
   const client = new SmartClient();
   client.members = ["song-A"];
   await assert.rejects(
@@ -173,7 +174,7 @@ test("refuses a smart playlist whose source is a different file", async () => {
 });
 
 test("keeps the upstream editable-playlist path when the legacy layout is off", async () => {
-  const flow = await setUpFlow();
+  const flow = await setUpFlow("Chill");
   process.env.AURRAL_PRESERVE_LEGACY_MEDIA_LAYOUT = "false";
   const client = new SmartClient();
   client.members = ["song-A"];
