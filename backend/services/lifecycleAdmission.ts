@@ -70,7 +70,8 @@ export async function withLifecycleJob(payload:any,job:any,operation:()=>Promise
         const stopped=db.prepare("SELECT value FROM policy_state WHERE key='space_stopped'").get()?.value==='true';
         if(observed.available-observed.external-usage<(stopped?config.resume_bytes:config.reserve_bytes))throw new LifecycleHold("SSD admission reserve is occupied");
       }
-      lifecycleSourceAllowed(payload.source,payload.phase);
+      // Source admission is decided in the pipeline, where a disallowed source
+      // fails over like any other source failure instead of holding forever.
     }
   } catch(error) {
     return {...payload,delaySeconds:60,lifecycleHold:isLifecycleHold(error)?(error as Error).message:'Lifecycle state unavailable; preserve the original queued job'};
@@ -78,9 +79,12 @@ export async function withLifecycleJob(payload:any,job:any,operation:()=>Promise
   try{return await owner.run(context,operation);}
   catch(error){if(isLifecycleHold(error))return {...payload,delaySeconds:60,lifecycleHold:(error as Error).message};throw error;}
 }
+export const LIFECYCLE_SOURCE_REJECTED="This download source has no qualified bounded-size admission contract";
+export function isLifecycleSourceAllowed(source:any,phase:string){
+  return !(enabled()&&['search','download'].includes(phase)&&source&&source!=='slskd');
+}
 export function lifecycleSourceAllowed(source:any,phase:string){
-  if(enabled()&&['search','download'].includes(phase)&&source&&source!=='slskd')
-    throw new LifecycleHold("This download source has no qualified bounded-size admission contract");
+  if(!isLifecycleSourceAllowed(source,phase))throw new LifecycleHold(LIFECYCLE_SOURCE_REJECTED);
 }
 function openConfig(){return {config:JSON.parse(fs.readFileSync(process.env.AURRAL_LIFECYCLE_CONFIG!,"utf8"))};}
 

@@ -66,7 +66,10 @@ export async function captureLifecycleSelection(flowId:string,jobs:any[]) {
   const flow=flowPlaylistConfig.getFlow(flowId);
   const generation=Math.max(...jobs.map(job=>Number(job.playlistGeneration)||0));
   const current=jobs.filter(job=>(Number(job.playlistGeneration)||0)===generation);
-  if (!flow || current.length<flow.size || current.some(job=>!['done','failed','cancelled','canceled','skipped'].includes(job.status))) return;
+  // Called at the weekly reset, right before the generation's jobs are deleted.
+  // Record every artist whose track actually arrived, even when other jobs of
+  // the week never finished; otherwise one stuck job discarded the whole week.
+  if (!flow || !current.some(job=>job.status==='done' && job.finalPath)) return;
   const now=Date.now()/1000;
   if (db.inTransaction) throw new Error("Lifecycle selection must commit before flow deletion");
   const previousSync=db.pragma("synchronous",{simple:true});
