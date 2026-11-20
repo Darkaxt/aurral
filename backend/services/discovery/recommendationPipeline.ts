@@ -178,6 +178,7 @@ export const isChartPick = ({ sourceTypes = [] }: Pick<DiscoveryRecommendation, 
 const SOURCE_BASE_WEIGHTS = {
   library: 1,
   local: 1.25,
+  navidrome: 1.25,
   listenbrainz: 1.3,
   koito: 1.3,
   spotify: 1.2,

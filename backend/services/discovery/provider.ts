@@ -51,7 +51,7 @@ import {
 } from "./persistence.ts";
 import { buildTagProfile, collectSeedTags, type SourceHealth } from "./tasteProfile.ts";
 import { buildRecommendationsFromSeeds } from "./recommendations.ts";
-import { getTopPlayedArtists } from "../playEventService.ts";
+import { getTopPlayedSeedArtists } from "../playEventService.ts";
 import { getTopSpotifyImportArtists } from "../spotify/spotifyImport.ts";
 import { getTopFavoriteArtists } from "./favoriteArtists.ts";
 import { buildDiscoveryPlaylists } from "./discoveryPlaylists.ts";
@@ -301,10 +301,7 @@ const collectUserSeeds = async (user: DiscoveryUser, feedback: DiscoveryFeedback
       }
     }),
   );
-  const localHistory = getTopPlayedArtists(user.id, { limit: 50 }).map((artist) => ({
-    ...artist,
-    source: "local",
-  }));
+  const localHistory = getTopPlayedSeedArtists(user.id, { limit: 50 });
   const spotifyHistory = getTopSpotifyImportArtists(user.id, 50).map((artist) => ({
     ...artist,
     source: "spotify",

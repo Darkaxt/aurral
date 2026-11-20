@@ -48,10 +48,11 @@ const getArtistsStmt = db.prepare<
     artist_mbid: string | null;
     play_count: number;
     last_played_at: number;
+    from_navidrome: number;
   }
 >(`
   SELECT artist, MAX(artist_mbid) AS artist_mbid, COUNT(*) AS play_count,
-         MAX(played_at) AS last_played_at
+         MAX(played_at) AS last_played_at, MAX(source = 'navidrome') AS from_navidrome
   FROM play_events
   WHERE user_id = ?
   GROUP BY artist
@@ -127,6 +128,22 @@ export const getTopPlayedArtists = (userId: number, { limit = 20 }: { limit?: un
     mbid: row.artist_mbid || null,
     playcount: Number(row.play_count) || 0,
     lastPlayedAt: Number(row.last_played_at) || null,
+  }));
+};
+
+// minipc fork: discovery seeds from play history, labelled "navidrome" when
+// any of the artist's plays came from a connected Navidrome history server.
+// The music lifecycle follows only recommendations with a navidrome seed.
+export const getTopPlayedSeedArtists = (
+  userId: number,
+  { limit = 20 }: { limit?: unknown } = {},
+) => {
+  const safeLimit = Math.min(100, Math.max(1, positiveInt(limit, 20)));
+  return getArtistsStmt.all(userId, safeLimit).map((row) => ({
+    artistName: row.artist,
+    mbid: row.artist_mbid || null,
+    playcount: Number(row.play_count) || 0,
+    source: row.from_navidrome ? "navidrome" : "local",
   }));
 };
 
