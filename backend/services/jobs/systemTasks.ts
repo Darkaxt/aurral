@@ -388,7 +388,7 @@ const SYSTEM_TASKS = {
     queue: "system",
     label: "Old media server playlist cleanup",
     description:
-      "Removes the playlists Aurral used to create in Navidrome, Plex, and Jellyfin, then forgets those connections.",
+      "Forgets the playlists Aurral used to create in Navidrome, Plex, and Jellyfin and those connections, without deleting anything.",
     async run() {
       const { cleanUpPlaybackServers } = await import("../playbackServerCleanup.ts");
       await cleanUpPlaybackServers();

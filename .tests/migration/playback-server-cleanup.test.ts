@@ -53,7 +53,7 @@ async function writeFile(file: string) {
   return file;
 }
 
-test("removes old server playlists and retained files, retrying a server that is down", async () => {
+test("forgets old server playlists and retained files without deleting anything", async () => {
   resetDatabase(db);
   downloadTracker.clearAll();
   const secret = (value: string) => encryptWithKey(value, getSettingsEncryptionKey());
@@ -69,51 +69,30 @@ test("removes old server playlists and retained files, retrying a server that is
   });
   dbOps.setJSONSetting("navidromePlaylistPointers", {
     flow: { global: { playlistId: "nd-1" } },
-    gone: { global: { playlistId: "nd-already-gone" } },
   });
   dbOps.setJSONSetting("jellyfinPlaylistPointers", {
     flow: { global: { playlistId: "jf-1", serverUrl: "http://jellyfin.test/" } },
-    moved: { global: { playlistId: "jf-old", serverUrl: "http://old-jellyfin.test" } },
   });
   const root = resolveDownloadRoot();
-  const unowned = await writeFile(path.join(root, "Old", "Unowned.flac"));
-  const owned = await writeFile(path.join(root, "Old", "Owned.flac"));
-  const outside = await writeFile(path.join(state.baseDir, "elsewhere", "Outside.flac"));
-  const jobId = downloadTracker.addJob({ artistName: "A", trackName: "Owned" }, "flow");
-  downloadTracker.setDone(jobId!, owned, "Album");
-  dbOps.setJSONSetting(
-    "playbackRetainedFiles",
-    Object.fromEntries([unowned, owned, outside].map((file) => [file, { reason: "playback" }])),
-  );
+  const retained = await writeFile(path.join(root, "Old", "Retained.flac"));
+  dbOps.setJSONSetting("playbackRetainedFiles", { [retained]: { reason: "playback" } });
   const user = userOps.createUser("plex-user", "hash")!;
   userIdentityOps.link(user.id, { providerType: "plex", providerKey: "plex", subject: "p-1" });
 
   const navidrome = createFakeNavidrome({ playlists: ["nd-1"] });
-  const jellyfinDeletes: string[] = [];
-  let jellyfinUp = false;
+  const calls: string[] = [];
   globalThis.fetch = async (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.hostname === "navidrome.test") return navidrome.fetch(input, init);
-    if (!jellyfinUp) throw new TypeError("fetch failed");
-    jellyfinDeletes.push(url.pathname);
-    return new Response(null, { status: 204 });
+    calls.push(input instanceof Request ? input.url : String(input));
+    return navidrome.fetch(input, init);
   };
 
   assert.equal(cleanup.hasLegacyPlaybackServerData(), true);
-  assert.deepEqual((await cleanup.cleanUpPlaybackServers()).pending, ["jellyfin"]);
-  assert.deepEqual(navidrome.playlists, []);
-  assert.equal(await exists(unowned), true);
-  assert.equal(cleanup.hasLegacyPlaybackServerData(), true);
-
-  jellyfinUp = true;
   const result = await cleanup.cleanUpPlaybackServers();
 
-  assert.deepEqual(result, { pending: [], removedFiles: [unowned] });
-  assert.deepEqual(jellyfinDeletes, ["/Items/jf-1"]);
-  assert.deepEqual(
-    [await exists(unowned), await exists(owned), await exists(outside)],
-    [false, true, true],
-  );
+  assert.deepEqual(result, { pending: [], removedFiles: [] });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(navidrome.playlists, ["nd-1"]);
+  assert.equal(await exists(retained), true);
   assert.equal(cleanup.hasLegacyPlaybackServerData(), false);
   assert.equal(userIdentityOps.countForUser(user.id), 0);
 });
