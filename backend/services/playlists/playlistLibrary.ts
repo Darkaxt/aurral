@@ -1,3 +1,4 @@
+import { lifecycleProtectionReason } from "../lifecycleProtection.ts";
 import fs from "node:fs/promises";
 import { db } from "../../config/db-sqlite.ts";
 import { asAppError } from "../../../lib/errors.ts";
@@ -187,6 +188,7 @@ async function dropTrackFile(job: DownloadJob) {
       (other) => other.id !== job.id && other.status === "done" && other.finalPath === finalPath,
     );
   if (sharedFile) return;
+  if (await lifecycleProtectionReason(finalPath)) return;
   const upgrades = downloadTracker.getAll().filter((entry) => entry.upgradeForJobId === job.id);
   if (upgrades.length) {
     const cancelled = await cancelTrackDownloads(upgrades.map((entry) => entry.id));

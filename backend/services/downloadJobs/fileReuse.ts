@@ -1,3 +1,4 @@
+import { lifecycleProtectionReason } from "../lifecycleProtection.ts";
 import fs from "fs/promises";
 import path from "path";
 import { asAppError } from "../../../lib/errors.ts";
@@ -405,6 +406,7 @@ export async function removePlaylistFileIfUnshared(
     const nextPath = await adoptFileIntoPlaylist(resolved, survivor.playlistType, downloadRoot);
     return { action: nextPath ? "relocated" : "skipped" };
   }
+  if (await lifecycleProtectionReason(resolved)) return { action: "skipped" };
   await fs.rm(resolved, { force: true });
   return { action: "deleted" };
 }

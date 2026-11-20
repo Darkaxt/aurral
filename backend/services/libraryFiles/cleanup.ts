@@ -1,3 +1,4 @@
+import { lifecycleProtectionReason } from "../lifecycleProtection.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Stats } from "node:fs";
@@ -532,6 +533,14 @@ export async function applyCleanupItem(
   item: LibraryFileItem,
   context: CleanupApplyContext,
 ) {
+  // minipc fork: Clean up never renames, retags or removes a protected file.
+  const protection = await lifecycleProtectionReason(path.resolve(item.sourcePath));
+  if (protection)
+    return {
+      status: "skipped",
+      reason: `The music lifecycle protects this file (${protection}).`,
+      details: item.details,
+    };
   if (item.details.action === "remove-source") return removeDuplicate(item);
   const details = { ...item.details, results: { ...(item.details.results || {}) } };
   const actions = details.actions || [];

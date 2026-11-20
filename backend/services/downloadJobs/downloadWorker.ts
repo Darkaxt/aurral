@@ -1,5 +1,5 @@
+import { removeTreeKeepingProtected } from "../lifecycleProtection.ts";
 import path from "path";
-import fs from "node:fs/promises";
 import { downloadTracker, type DownloadJob, type DownloadTrackInput } from "./downloadTracker.ts";
 import { playlistManager } from "../playlists/playlistManager.ts";
 import { flowPlaylistConfig } from "../playlists/flowPlaylistConfig.ts";
@@ -759,9 +759,9 @@ export class DownloadWorker {
             console.log(
               `[DownloadWorker] All jobs complete for ${playlistType}, queueing playlist file sync`,
             );
-            await fs
-              .rm(path.join(this.downloadRoot, "_fallback"), { recursive: true, force: true })
-              .catch(() => {});
+            await removeTreeKeepingProtected(path.join(this.downloadRoot, "_fallback")).catch(
+              () => {},
+            );
             try {
               playlistManager.requestPlaylistSync([playlistType]);
               if (flowPlaylistConfig.isEnabled(playlistType)) {

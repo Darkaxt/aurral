@@ -1,3 +1,4 @@
+import { captureLifecycleSelection, removeTreeKeepingProtected } from "../lifecycleProtection.ts";
 import path from "path";
 import fs from "fs/promises";
 import { constants as fsConstants } from "fs";
@@ -322,9 +323,7 @@ export class PlaylistManager {
       playlistTypes && playlistTypes.length
         ? playlistTypes
         : flowPlaylistConfig.getFlows().map((flow) => flow.id);
-    await fs
-      .rm(path.join(this.downloadRoot, "_fallback"), { recursive: true, force: true })
-      .catch(() => {});
+    await removeTreeKeepingProtected(path.join(this.downloadRoot, "_fallback")).catch(() => {});
 
     const flowsRoot = path.join(this.downloadRoot, AURRAL_FLOWS_DIR);
     const { keepPlaylistStarsInLibrary } = await import("../subsonicLibraryService.ts");
@@ -337,7 +336,9 @@ export class PlaylistManager {
         await relocateSharedFilesBeforePlaylistRemoval(playlistType, {
           downloadRoot: this.downloadRoot,
         });
-        await fs.rm(flowDir, { recursive: true, force: true });
+        const { kept } = await removeTreeKeepingProtected(flowDir);
+        if (kept)
+          console.log(`[PlaylistManager] Kept ${kept} protected file(s) for ${playlistType}`);
         console.log(`[PlaylistManager] Cleaned unused files for ${playlistType}`);
       } catch (error) {
         console.warn(
@@ -345,6 +346,7 @@ export class PlaylistManager {
           asAppError(error)?.message,
         );
       }
+      await captureLifecycleSelection(playlistType, downloadTracker.getByPlaylistId(playlistType));
       downloadTracker.clearByPlaylistId(playlistType);
       const { repairJobsUnderRemovedPlaylistDir } = await import("../downloadJobs/fileReuse.ts");
       await repairJobsUnderRemovedPlaylistDir(playlistType, { downloadRoot: this.downloadRoot });

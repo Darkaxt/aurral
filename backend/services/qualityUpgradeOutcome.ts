@@ -1,3 +1,4 @@
+import { lifecycleProtectionReason } from "./lifecycleProtection.ts";
 import fs from "fs/promises";
 import path from "path";
 import { logger, safeLogDiagnostic } from "./logger.ts";
@@ -58,7 +59,11 @@ export async function finalizeQualityUpgradeSuccess(
   };
   let upgradedPath = finalPath;
   let replaced = false;
-  if (oldPath !== finalPath && isAurralOwnedPath(oldPath)) {
+  if (
+    oldPath !== finalPath &&
+    isAurralOwnedPath(oldPath) &&
+    !(await lifecycleProtectionReason(oldPath))
+  ) {
     await fs.rm(oldPath, { force: true }).catch(() => {});
     upgradedPath = await takeReplacedFileName(oldPath, finalPath);
     replaced = true;

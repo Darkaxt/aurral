@@ -1,3 +1,4 @@
+import { lifecycleProtectedFiles } from "./lifecycleProtection.ts";
 import PQueue from "p-queue";
 import fsp from "fs/promises";
 import path from "path";
@@ -575,6 +576,12 @@ async function deleteAurralLibraryFiles(paths: string[]) {
       .filter((filePath) => libraryFolderOwner(filePath, folders) === "aurral")
       .map((filePath) => path.resolve(filePath)),
   );
+  // minipc fork: refuse the whole removal when the music lifecycle protects a file.
+  const protectedFiles = await lifecycleProtectedFiles(deletablePaths);
+  if (protectedFiles.size > 0)
+    return new Error(
+      `Kept ${protectedFiles.size} file(s) the music lifecycle protects (${[...new Set(protectedFiles.values())].join(", ")})`,
+    );
   const deletionResults = await Promise.allSettled(
     paths.map(async (filePath) => {
       if (deletablePaths.has(path.resolve(filePath))) {
