@@ -5,7 +5,7 @@ import { validateExternalUrl } from "../middleware/urlValidator.ts";
 import { normalizeKoitoBaseUrl } from "./koitoClient.ts";
 import { requireNavidromeHistoryAccount, NavidromeHistoryError } from "./navidromeHistory.ts";
 
-export const LISTEN_HISTORY_PROVIDERS = ["lastfm", "listenbrainz", "koito", "navidrome"] as const;
+export const LISTEN_HISTORY_PROVIDERS = ["listenbrainz", "koito", "navidrome"] as const;
 export type ListenHistoryProvider = (typeof LISTEN_HISTORY_PROVIDERS)[number];
 export type ListenHistory = Record<ListenHistoryProvider, string | null>;
 
@@ -22,19 +22,24 @@ const deleteStmt = db.prepare<[number, string]>(
 );
 
 export function getListenHistory(userId: number) {
-  const history: ListenHistory = { lastfm: null, listenbrainz: null, koito: null, navidrome: null };
+  const history: ListenHistory = { listenbrainz: null, koito: null, navidrome: null };
   for (const { provider, account } of selectStmt.all(userId)) {
     if (isOwnKey(history, provider)) history[provider] = account;
   }
   return history;
 }
 
-function normalizeAccount(userId: number, provider: ListenHistoryProvider, value: string | null | undefined) {
+function normalizeAccount(
+  userId: number,
+  provider: ListenHistoryProvider,
+  value: string | null | undefined,
+) {
   const trimmed = value?.trim();
   if (!trimmed) return null;
   if (provider === "navidrome") {
-    try { return requireNavidromeHistoryAccount(userId, trimmed); }
-    catch (error) {
+    try {
+      return requireNavidromeHistoryAccount(userId, trimmed);
+    } catch (error) {
       if (error instanceof NavidromeHistoryError) throw new ListenHistoryError(error.message);
       throw error;
     }

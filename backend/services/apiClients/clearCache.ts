@@ -1,4 +1,3 @@
-import { lastfmCache } from "./lastfm.ts";
 import { listenbrainzCache, listenbrainzLookupCache } from "./listenbrainz.ts";
 import { deezerArtistCache } from "./deezer.ts";
 import {
@@ -20,7 +19,6 @@ import { clearReleaseManifests } from "../releaseResolver.ts";
 export function clearApiCaches() {
   clearMetadataProviderCaches();
   clearReleaseManifests();
-  lastfmCache.flushAll();
   listenbrainzCache.flushAll();
   listenbrainzLookupCache.flushAll();
   deezerArtistCache.flushAll();

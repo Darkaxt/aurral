@@ -96,7 +96,6 @@ const playlistUpdate = v.object({
     v.object({
       provider: v.optional(v.string()),
       externalId: v.nullish(v.string()),
-      externalUsername: v.nullish(v.string()),
       externalName: v.nullish(v.string()),
       syncEnabled: v.optional(v.boolean()),
       syncIntervalHours: v.nullish(v.union([v.number(), v.string()])),

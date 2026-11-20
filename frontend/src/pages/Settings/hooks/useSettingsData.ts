@@ -89,8 +89,6 @@ const defaultSettings = {
       userId: "",
     },
     lastfm: {
-      apiKey: "",
-      apiSecret: "",
       discoveryPeriod: "1month",
       discoveryAutoRefreshHours: 168,
       discoveryRecommendationsPerRefresh: 200,

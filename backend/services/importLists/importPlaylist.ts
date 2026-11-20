@@ -2,7 +2,6 @@ import { randomUUID } from "crypto";
 import { spotifyClient } from "../spotify/spotifyClient.ts";
 import { parseSpotifyPlaylistItems } from "./spotifyTracks.ts";
 import { listenbrainzPlaylistClient } from "./listenbrainzPlaylists.ts";
-import { lastfmStationClient } from "./lastfmStations.ts";
 import { youtubeMusicPlaylistClient } from "./youtubeMusicPlaylists.ts";
 import { getDeezerPlaylist } from "./deezerPlaylists.ts";
 import { normalizeImportSource } from "../playlists/flowPlaylistConfig.ts";
@@ -42,13 +41,11 @@ export async function fetchImportedPlaylistTracks({
   provider,
   userId,
   externalId,
-  externalUsername,
   forceRefresh = false,
 }: {
   provider: string;
   userId: number | undefined;
   externalId: string;
-  externalUsername?: string | null;
   forceRefresh?: boolean;
 }): Promise<ImportedPlaylistTracks> {
   if (provider === "spotify-playlist") {
@@ -64,9 +61,6 @@ export async function fetchImportedPlaylistTracks({
   }
   if (provider === "listenbrainz-createdfor") {
     return listenbrainzPlaylistClient.getGeneratedPlaylistTracks(userId, externalId);
-  }
-  if (provider === "lastfm-station") {
-    return lastfmStationClient.getStationTracks(userId, externalId, externalUsername);
   }
   if (provider === "youtube-music-playlist") {
     const { tracks, stats, excluded, artworkUrl } = await youtubeMusicPlaylistClient.getPlaylist(
@@ -109,7 +103,6 @@ export async function enqueueImportedPlaylist({
   artworkUrl = null,
   provider,
   externalId,
-  externalUsername,
   externalName,
   tracks,
   sourceStats = null,
@@ -124,7 +117,6 @@ export async function enqueueImportedPlaylist({
   artworkUrl?: string | null;
   provider: string;
   externalId: string;
-  externalUsername?: string | null;
   externalName: string;
   tracks: PlaylistTrack[];
   sourceStats?: ImportStats | null;
@@ -136,7 +128,6 @@ export async function enqueueImportedPlaylist({
   const importSource = normalizeImportSource({
     provider,
     externalId,
-    externalUsername,
     externalName: externalName || name,
     artworkUrl,
     syncEnabled,

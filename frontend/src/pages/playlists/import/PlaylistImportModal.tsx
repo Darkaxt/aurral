@@ -11,9 +11,7 @@ import { shareLinksClient } from "../../../utils/api/clients/shareLinks.ts";
 import { scrobblingClient } from "../../../utils/api/clients/scrobbling.ts";
 import { formatTrackTotal } from "../playlistPageUtils.ts";
 import { getAppBasePath, normalizeBasePathWithTrailingSlash } from "../../../utils/basePath";
-import { useAuth } from "../../../contexts/AuthContext";
 import { queryClient, queryKeys } from "../../../queryClient.ts";
-import { listeningHistoryQueryOptions } from "../../../queryOptions.ts";
 import { reserveUniqueName, normalizeNameKey } from "../flowPageUtils";
 import { apiFetchWithin, type ApiError } from "../../../utils/api/core.ts";
 import { getApiErrorBody, getApiErrorMessage } from "../../../utils/api/errors.ts";
@@ -24,7 +22,7 @@ declare global {
   }
 }
 
-type ImportSource = "spotify" | "listenbrainz" | "lastfm" | "youtube" | "aurral";
+type ImportSource = "spotify" | "listenbrainz" | "youtube" | "aurral";
 type ImportPlaylist = {
   id: string;
   name: string;
@@ -61,8 +59,7 @@ const SPOTIFY_AUTH_REQUIRED_CODE = "SPOTIFY_AUTH_REQUIRED";
 
 function getPlaylistMeta(playlist: ImportPlaylist) {
   const parts = [playlist?.trackCount != null ? `${playlist.trackCount} tracks` : "Playlist"];
-  if (playlist?.sourceType === "lastfm-station") parts.push("Updates from Last.fm");
-  else if (playlist?.sourceType) parts.push("Updates weekly");
+  if (playlist?.sourceType) parts.push("Updates weekly");
   return parts.join(" · ");
 }
 
@@ -165,11 +162,9 @@ function PlaylistImportConfig({
               <p className="playlist-import__summary-copy">
                 {externalSource === "Spotify"
                   ? "Skipped unavailable tracks, podcasts, and duplicates."
-                  : externalSource === "Last.fm"
-                    ? "Skipped entries with missing artist or track details."
-                    : externalSource === "YouTube Music"
-                      ? "Skipped unavailable entries, podcasts, incomplete videos, and duplicates."
-                      : "Skipped entries with missing artist or track details."}
+                  : externalSource === "YouTube Music"
+                    ? "Skipped unavailable entries, podcasts, incomplete videos, and duplicates."
+                    : "Skipped entries with missing artist or track details."}
               </p>
             ) : null}
             {previewTracks.length > 0 ? (
@@ -327,14 +322,11 @@ export function PlaylistImportModal({
   existingPlaylistNames = [],
   initialShareUrl = "",
 }: PlaylistImportModalProps) {
-  const { user } = useAuth();
   const [source, setSource] = useState<ImportSource>(initialShareUrl ? "aurral" : "spotify");
   const [shareUrl, setShareUrl] = useState(initialShareUrl);
   const [requestedShareUrl, setRequestedShareUrl] = useState(initialShareUrl);
   const [shareSync, setShareSync] = useState(true);
   const [shareFiles, setShareFiles] = useState(false);
-  const [lastfmUsernameDraft, setLastfmUsernameDraft] = useState<string | null>(null);
-  const [lastfmRequestedUsername, setLastfmRequestedUsername] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [playlistQuery, setPlaylistQuery] = useState("");
   const [pickedPlaylist, setPickedPlaylist] = useState<ImportPlaylist | null>(null);
@@ -357,8 +349,6 @@ export function PlaylistImportModal({
 
   const resetState = useCallback(() => {
     setSource("spotify");
-    setLastfmUsernameDraft(null);
-    setLastfmRequestedUsername(null);
     setYoutubeUrl("");
     setPlaylistQuery("");
     setPickedPlaylist(null);
@@ -371,7 +361,9 @@ export function PlaylistImportModal({
   const handleSpotifyError = useCallback(
     (error: ApiError) => {
       if (!isSpotifyAuthRequired(error)) return;
-      queryClient.removeQueries({ queryKey: queryKeys.playlistImportPrefix("spotify") });
+      queryClient.removeQueries({
+        queryKey: queryKeys.playlistImportPrefix("spotify"),
+      });
       queryClient.setQueryData(queryKeys.spotifyImportStatus, {
         connected: false,
         displayName: null,
@@ -416,51 +408,24 @@ export function PlaylistImportModal({
     displayName: listenBrainzPlaylistsQuery.data?.user || listenBrainzAccount?.displayName || null,
   };
 
-  const lastfmProfileQuery = useQuery({
-    ...listeningHistoryQueryOptions(user?.id),
-    enabled: user?.id != null && open && source === "lastfm" && lastfmRequestedUsername === null,
-  });
-  const profileLastfmUsername = lastfmProfileQuery.data?.lastfm ?? "";
-  const lastfmUsernameRequest = lastfmRequestedUsername ?? profileLastfmUsername;
-  const lastfmUsernameInput = lastfmUsernameDraft ?? profileLastfmUsername;
-  const lastfmPlaylistsQuery = useQuery({
-    queryKey: queryKeys.playlistImportList("lastfm", lastfmUsernameRequest),
-    queryFn: () =>
-      parseResponse(
-        importApi.lastfm.playlists.$get({
-          query: lastfmUsernameRequest ? { username: lastfmUsernameRequest } : {},
-        }),
-      ),
-    enabled: open && source === "lastfm" && Boolean(lastfmUsernameRequest),
-  });
-  const lastfmUsername = lastfmPlaylistsQuery.isSuccess ? lastfmUsernameRequest : "";
-  const lastfmProfileLoading = lastfmRequestedUsername === null && lastfmProfileQuery.isLoading;
-  const lastfmLoading = lastfmPlaylistsQuery.isFetching;
-
   const previewQuery = useQuery({
     queryKey: queryKeys.playlistImportPreview(source, pickedPlaylist?.id, {
       sourceType: pickedPlaylist?.sourceType || null,
-      username: source === "lastfm" ? lastfmUsername : null,
     }),
     queryFn: () =>
       parseResponse(
         source === "spotify"
-          ? importApi.spotify.preview.$post({ json: { playlistId: pickedPlaylist!.id } })
-          : source === "listenbrainz"
-            ? importApi.listenbrainz.preview.$post({
-                json: {
-                  playlistId: pickedPlaylist!.id,
-                  ...(pickedPlaylist!.sourceType
-                    ? { playlistType: pickedPlaylist!.sourceType }
-                    : {}),
-                },
-              })
-            : importApi.lastfm.preview.$post({
-                json: { playlistId: pickedPlaylist!.id, username: lastfmUsername },
-              }),
+          ? importApi.spotify.preview.$post({
+              json: { playlistId: pickedPlaylist!.id },
+            })
+          : importApi.listenbrainz.preview.$post({
+              json: {
+                playlistId: pickedPlaylist!.id,
+                ...(pickedPlaylist!.sourceType ? { playlistType: pickedPlaylist!.sourceType } : {}),
+              },
+            }),
       ),
-    enabled:
-      open && ["spotify", "listenbrainz", "lastfm"].includes(source) && Boolean(pickedPlaylist?.id),
+    enabled: open && ["spotify", "listenbrainz"].includes(source) && Boolean(pickedPlaylist?.id),
   });
 
   useErrorToast(
@@ -476,23 +441,22 @@ export function PlaylistImportModal({
     "Failed to load ListenBrainz playlists",
     showError,
   );
-  useErrorToast(
-    source === "lastfm" ? lastfmPlaylistsQuery.error : null,
-    "Failed to load Last.fm stations",
-    showError,
-  );
   useErrorToast(previewQuery.error, "Failed to preview playlist", showError, handleSpotifyError);
 
   const connectSpotify = useMutation({
     mutationFn: async () => {
       const { oauthUrl } = await parseResponse(
-        importApi.spotify.oauth.start.$post({ json: { callbackUrl: getOAuthCallbackUrl() } }),
+        importApi.spotify.oauth.start.$post({
+          json: { callbackUrl: getOAuthCallbackUrl() },
+        }),
       );
       const tokens = await openSpotifyOAuthPopup(oauthUrl);
       return parseResponse(importApi.spotify.oauth.complete.$post({ json: tokens }));
     },
     onSuccess: (status) => {
-      queryClient.removeQueries({ queryKey: queryKeys.playlistImportPrefix("spotify") });
+      queryClient.removeQueries({
+        queryKey: queryKeys.playlistImportPrefix("spotify"),
+      });
       queryClient.setQueryData(queryKeys.spotifyImportStatus, {
         connected: true,
         displayName: status?.displayName || null,
@@ -508,7 +472,9 @@ export function PlaylistImportModal({
   const disconnectSpotifyAccount = useMutation({
     mutationFn: () => parseResponse(importApi.spotify.$delete()),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: queryKeys.playlistImportPrefix("spotify") });
+      queryClient.removeQueries({
+        queryKey: queryKeys.playlistImportPrefix("spotify"),
+      });
       queryClient.setQueryData(queryKeys.spotifyImportStatus, {
         connected: false,
         displayName: null,
@@ -523,7 +489,11 @@ export function PlaylistImportModal({
   const sharePreview = useQuery({
     queryKey: ["share-import", requestedShareUrl],
     queryFn: () =>
-      parseResponse(shareLinksClient.import.preview.$post({ json: { url: requestedShareUrl } })),
+      parseResponse(
+        shareLinksClient.import.preview.$post({
+          json: { url: requestedShareUrl },
+        }),
+      ),
     enabled: open && source === "aurral" && Boolean(requestedShareUrl),
     retry: false,
     staleTime: 60_000,
@@ -585,9 +555,7 @@ export function PlaylistImportModal({
         ? listenBrainzStatus.connected
           ? listenBrainzPlaylistsQuery.data
           : null
-        : source === "lastfm"
-          ? lastfmPlaylistsQuery.data
-          : null;
+        : null;
   const playlists: ImportPlaylist[] = Array.isArray(activePlaylistsData?.playlists)
     ? activePlaylistsData.playlists
     : EMPTY_PLAYLISTS;
@@ -607,22 +575,6 @@ export function PlaylistImportModal({
     youtubePreview.reset();
     setShareUrl("");
     setRequestedShareUrl("");
-  };
-
-  const loadLastfmPlaylists = (requestedUsername: string) => {
-    const username = String(requestedUsername || "").trim();
-    if (!username) return;
-    setLastfmUsernameDraft(username);
-    setLastfmRequestedUsername(username);
-    if (username === lastfmUsernameRequest && lastfmPlaylistsQuery.isError) {
-      void lastfmPlaylistsQuery.refetch();
-    }
-  };
-
-  const changeLastfmUsername = () => {
-    setLastfmRequestedUsername("");
-    setLastfmUsernameDraft("");
-    setPickedPlaylist(null);
   };
 
   const handleSelectPlaylist = (playlist: ImportPlaylist) => {
@@ -656,15 +608,8 @@ export function PlaylistImportModal({
     }
     const finalName = reserveUniqueName(new Set(reservedNameKeys), baseName);
     const isListenBrainz = source === "listenbrainz";
-    const isLastfm = source === "lastfm";
     const isYoutube = source === "youtube";
-    const providerLabel = isListenBrainz
-      ? "ListenBrainz"
-      : isLastfm
-        ? "Last.fm"
-        : isYoutube
-          ? "YouTube Music"
-          : "Spotify";
+    const providerLabel = isListenBrainz ? "ListenBrainz" : isYoutube ? "YouTube Music" : "Spotify";
     const payload = {
       playlistId: selectedPlaylist.id,
       name: finalName,
@@ -685,13 +630,9 @@ export function PlaylistImportModal({
                   : {}),
               },
             })
-          : isLastfm
-            ? importApi.lastfm.$post({
-                json: { ...payload, externalName, username: lastfmUsername },
-              })
-            : isYoutube
-              ? importApi["youtube-music"].$post({ json: payload }, { fetch: youtubeFetch })
-              : importApi.spotify.$post({ json: { ...payload, externalName } }),
+          : isYoutube
+            ? importApi["youtube-music"].$post({ json: payload }, { fetch: youtubeFetch })
+            : importApi.spotify.$post({ json: { ...payload, externalName } }),
       );
     externalImport.mutate(runImport, {
       onSuccess: () => {
@@ -750,13 +691,7 @@ export function PlaylistImportModal({
 
   const canImportExternal = selectedPlaylist?.id && previewTrackCount > 0 && !previewLoading;
   const externalSource =
-    source === "listenbrainz"
-      ? "ListenBrainz"
-      : source === "lastfm"
-        ? "Last.fm"
-        : source === "youtube"
-          ? "YouTube Music"
-          : "Spotify";
+    source === "listenbrainz" ? "ListenBrainz" : source === "youtube" ? "YouTube Music" : "Spotify";
 
   return (
     <ModalShell
@@ -808,7 +743,6 @@ export function PlaylistImportModal({
           {(
             [
               { id: "spotify", label: "Spotify" },
-              { id: "lastfm", label: "Last.fm" },
               { id: "listenbrainz", label: "ListenBrainz" },
               { id: "youtube", label: "YouTube Music" },
               { id: "aurral", label: "Aurral share" },
@@ -1076,52 +1010,6 @@ export function PlaylistImportModal({
                   Open ListenBrainz settings
                 </SettingsLink>
               </div>
-            ) : source === "lastfm" && !lastfmUsername ? (
-              <div className="playlist-import__lastfm-setup">
-                <div>
-                  <p className="playlist-import__empty-title">Enter your Last.fm username</p>
-                  <p className="playlist-import__empty-copy">
-                    Loads your Library, Mix, and Recommended stations.
-                  </p>
-                </div>
-                <div className="playlist-modal__fields">
-                  <label
-                    className="playlist-import__field-label"
-                    htmlFor="playlist-import-lastfm-username"
-                  >
-                    Last.fm username
-                  </label>
-                  <input
-                    id="playlist-import-lastfm-username"
-                    type="text"
-                    className="input"
-                    value={lastfmUsernameInput}
-                    onChange={(event) => setLastfmUsernameDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") loadLastfmPlaylists(lastfmUsernameInput);
-                    }}
-                    autoComplete="off"
-                    disabled={lastfmProfileLoading || lastfmLoading || importing}
-                  />
-                  <p className="settings-page__hint">Saved for future syncs.</p>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => loadLastfmPlaylists(lastfmUsernameInput)}
-                  disabled={
-                    lastfmProfileLoading ||
-                    lastfmLoading ||
-                    !lastfmUsernameInput.trim() ||
-                    importing
-                  }
-                >
-                  {lastfmProfileLoading || lastfmLoading ? (
-                    <DotLoader size="sm" label={null} />
-                  ) : null}
-                  Load stations
-                </button>
-              </div>
             ) : (
               <>
                 <div className="playlist-import__account">
@@ -1129,12 +1017,8 @@ export function PlaylistImportModal({
                   <span className="playlist-import__account-label">
                     Signed in as{" "}
                     <strong>
-                      {(source === "spotify"
-                        ? spotifyStatus
-                        : source === "listenbrainz"
-                          ? listenBrainzStatus
-                          : { displayName: lastfmUsername }
-                      ).displayName || externalSource}
+                      {(source === "spotify" ? spotifyStatus : listenBrainzStatus).displayName ||
+                        externalSource}
                     </strong>
                   </span>
                   {source === "spotify" ? (
@@ -1145,15 +1029,6 @@ export function PlaylistImportModal({
                       disabled={spotifyLoading || importing}
                     >
                       Disconnect
-                    </button>
-                  ) : source === "lastfm" ? (
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={changeLastfmUsername}
-                      disabled={lastfmLoading || importing}
-                    >
-                      Change
                     </button>
                   ) : null}
                 </div>
@@ -1186,18 +1061,15 @@ export function PlaylistImportModal({
                       placeholder="Search playlists"
                       value={playlistQuery}
                       onChange={(event) => setPlaylistQuery(event.target.value)}
-                      disabled={importing || spotifyLoading || listenBrainzLoading || lastfmLoading}
+                      disabled={importing || spotifyLoading || listenBrainzLoading}
                     />
                     <div
                       className="playlist-import__playlist-list"
                       role="listbox"
                       aria-label={`${externalSource} playlists`}
                     >
-                      {(source === "spotify"
-                        ? spotifyLoading
-                        : source === "listenbrainz"
-                          ? listenBrainzLoading
-                          : lastfmLoading) && playlists.length === 0 ? (
+                      {(source === "spotify" ? spotifyLoading : listenBrainzLoading) &&
+                      playlists.length === 0 ? (
                         <div className="playlist-import__list-status">
                           <DotLoader size="sm" label={null} />
                           <span>Loading playlists…</span>

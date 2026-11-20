@@ -2,7 +2,6 @@ import axios from "../../../lib/axiosFetch.ts";
 import { db } from "../../config/db-sqlite.ts";
 import { dbOps, userOps } from "../../db/helpers/index.ts";
 import type { LibraryArtistsRow, LibraryEntityGenresRow, PlayEventsRow } from "../../db/rows.ts";
-import { lastfmRequest } from "../apiClients/lastfm.ts";
 import { listenbrainzRequest } from "../apiClients/listenbrainz.ts";
 import { getListenHistory } from "../listeningHistory.ts";
 import { hasNavidromeHistoryMapping, readNavidromePlays } from "../navidromeHistory.ts";
@@ -83,48 +82,6 @@ export function readLocalWrappedHistory(userId: number, period: Period) {
       albumMbid: row.album_mbid,
       durationMs: row.duration_ms,
     }));
-}
-
-export function lastfmWrappedReader(username: string, period: Period) {
-  return async (page: number): Promise<Page> => {
-    const data: unknown = await lastfmRequest("user.getRecentTracks", {
-      user: username,
-      from: Math.ceil(period.start / 1000) - 1,
-      to: Math.ceil(period.end / 1000),
-      limit: 200,
-      page,
-    });
-    const recent = object(object(data).recenttracks);
-    if (!isRecord(recent["@attr"])) throw new Error("Last.fm history unavailable");
-    const rows = Array.isArray(recent.track) ? recent.track : recent.track ? [recent.track] : [];
-    const plays = rows.flatMap((value): WrappedPlay[] => {
-      const row = object(value);
-      const date = number(object(row.date).uts);
-      if (!date || object(row["@attr"]).nowplaying === "true") return [];
-      const artist = object(row.artist);
-      const album = object(row.album);
-      const artwork = list(row.image)
-        .map((image) => text(object(image)["#text"]))
-        .filter(Boolean)
-        .at(-1);
-      return [
-        {
-          source: "lastfm",
-          account: username,
-          id: `${date}:${text(artist["#text"])}:${text(row.name)}`,
-          playedAt: date * 1000,
-          title: text(row.name),
-          artist: text(artist["#text"]),
-          album: text(album["#text"]),
-          trackMbid: text(row.mbid),
-          artistMbid: text(artist.mbid),
-          albumMbid: text(album.mbid),
-          artwork,
-        },
-      ];
-    });
-    return { plays, more: page < number(object(recent["@attr"]).totalPages) };
-  };
 }
 
 export function listenbrainzWrappedReader(username: string, period: Period, token?: string) {
@@ -376,8 +333,6 @@ export async function collectWrappedHistory(userId: number, period: Period) {
     source: "aurral",
     read: async () => ({ plays: local, more: local.length > MAX_PLAYS }),
   });
-  const lastfm = history.navidrome ? null : connections.lastfm?.displayName || history.lastfm;
-  if (lastfm) readers.push({ source: "lastfm", read: lastfmWrappedReader(lastfm, period) });
   const listenbrainz = connections.listenbrainz?.displayName || history.listenbrainz;
   if (listenbrainz)
     readers.push({
@@ -389,7 +344,11 @@ export async function collectWrappedHistory(userId: number, period: Period) {
     readers.push({ source: "koito", read: koitoReader(koito, connections.koito?.token, period) });
   const soleUser = userOps.getAllUsers().length === 1;
   const navidrome = settings.integrations?.navidrome;
-  if (!hasNavidromeHistoryMapping(userId) && navidrome?.url && (soleUser || sameAccount(navidrome.username || "", user.username))) {
+  if (
+    !hasNavidromeHistoryMapping(userId) &&
+    navidrome?.url &&
+    (soleUser || sameAccount(navidrome.username || "", user.username))
+  ) {
     readers.push({
       source: "navidrome",
       read: navidromeReader(
@@ -456,8 +415,17 @@ export async function collectWrappedHistory(userId: number, period: Period) {
   if (history.navidrome) {
     try {
       const plays = readNavidromePlays(userId, history.navidrome, period);
-      const valid = plays.filter((play) => play.title && play.artist && Number.isFinite(play.playedAt));
-      results.push({ plays: valid, status: { source: "navidrome", state: valid.length === plays.length ? "ready" : "partial", plays: valid.length } });
+      const valid = plays.filter(
+        (play) => play.title && play.artist && Number.isFinite(play.playedAt),
+      );
+      results.push({
+        plays: valid,
+        status: {
+          source: "navidrome",
+          state: valid.length === plays.length ? "ready" : "partial",
+          plays: valid.length,
+        },
+      });
     } catch {
       results.push({ plays: [], status: { source: "navidrome", state: "unavailable", plays: 0 } });
     }

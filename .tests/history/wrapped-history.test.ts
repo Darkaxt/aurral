@@ -11,14 +11,13 @@ import { wrappedPeriod, type WrappedPlay } from "../../backend/services/wrapped/
 
 process.env.AURRAL_BACKGROUND_WORKER_GROUP = "library";
 
-const [state, { db }, { dbOps, userOps }, history, reports, lastfm, { default: wrapped }] =
+const [state, { db }, { dbOps, userOps }, history, reports, { default: wrapped }] =
   await setupIsolatedBackend(
     "wrapped-history",
     () => import("../../backend/config/db-sqlite.ts"),
     () => import("../../backend/db/helpers/index.ts"),
     () => import("../../backend/services/wrapped/history.ts"),
     () => import("../../backend/services/wrapped/reports.ts"),
-    () => import("../../backend/services/apiClients/lastfm.ts"),
     () => import("../../backend/routes/wrapped.ts"),
   );
 
@@ -269,26 +268,6 @@ test("a source that fails partway keeps the pages it already read", async () => 
   });
   assert.equal(result.status.state, "partial");
   assert.equal(result.plays.length, 1);
-});
-
-test("Last.fm history leaves out the track that is playing right now", async () => {
-  vi.spyOn(lastfm, "lastfmRequest").mockResolvedValue({
-    recenttracks: {
-      "@attr": { totalPages: "1" },
-      track: [
-        { name: "Song", artist: { "#text": "Artist" }, date: { uts: String(period.start / 1000) } },
-        { name: "Now playing", artist: { "#text": "Artist" }, "@attr": { nowplaying: "true" } },
-      ],
-    },
-  });
-  const result = await history.readWrappedSource(
-    "lastfm",
-    history.lastfmWrappedReader("one", period),
-  );
-  assert.deepEqual(
-    result.plays.map((play) => play.title),
-    ["Song"],
-  );
 });
 
 test("ListenBrainz paging keeps listens that share the boundary second", async () => {

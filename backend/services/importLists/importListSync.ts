@@ -110,7 +110,6 @@ async function syncStaticPlaylistImportHere({
       provider: playlist.importSource.provider,
       userId: ownerUserId,
       externalId: externalPlaylistId,
-      externalUsername: playlist.importSource?.externalUsername,
       forceRefresh: true,
     });
     const syncImportSource = {

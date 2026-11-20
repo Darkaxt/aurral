@@ -1,4 +1,4 @@
-import { lastfmRequest } from "../apiClients/index.ts";
+import { deezerGetTrackPreview } from "../apiClients/deezer.ts";
 import { guessArtistMbid } from "../artistMatch.ts";
 import {
   getArtistByMbid,
@@ -459,21 +459,6 @@ async function fetchReleaseContext(
   return resolved;
 }
 
-async function fetchLastfmTrackInfo(track: DownloadTrackFields) {
-  const artistName = String(track?.artistName || "").trim();
-  const trackName = String(track?.trackName || "").trim();
-  if (!artistName || !trackName) return null;
-  try {
-    return await lastfmRequest("track.getInfo", {
-      artist: artistName,
-      track: trackName,
-      autocorrect: 1,
-    });
-  } catch {
-    return null;
-  }
-}
-
 // The edition the job asks for decides its place, length, and the album's
 // whole tracklist, so they all describe one release.
 async function applyReleaseManifest(
@@ -496,7 +481,7 @@ async function applyReleaseManifest(
   return request;
 }
 
-// A complete release identity can skip Last.fm and release discovery. Its
+// A complete release identity can skip release discovery. Its
 // recording ID is still checked against the cached BrainzMash tracklist so
 // jobs created before that rule can be repaired safely.
 function hasReleaseIdentity(track: ResolvedTrack) {
@@ -587,24 +572,6 @@ export async function resolveTrackSearchContext(
     }
   }
 
-  const lastfmInfo = await fetchLastfmTrackInfo(base);
-  const lastfmTrack = lastfmInfo?.track || null;
-  const lastfmAlbumName = String(
-    lastfmTrack?.album?.title || lastfmTrack?.album?.["#text"] || "",
-  ).trim();
-  const lastfmArtistMbid = String(lastfmTrack?.artist?.mbid || "").trim();
-  const lastfmDuration =
-    lastfmTrack?.duration != null && Number.isFinite(Number(lastfmTrack.duration))
-      ? Math.max(0, Math.round(Number(lastfmTrack.duration)))
-      : null;
-
-  if (!base.albumName && lastfmAlbumName) {
-    base.albumName = lastfmAlbumName;
-  }
-  if (!base.artistMbid && lastfmArtistMbid) {
-    base.artistMbid = lastfmArtistMbid;
-  }
-
   if (!base.artistMbid) {
     base.artistMbid = await guessArtistMbid(base.artistName, { album: base.albumName });
   }
@@ -653,9 +620,16 @@ export async function resolveTrackSearchContext(
     base.discNumber = null;
   }
 
+  // Deezer's length (keyless; replaced Last.fm) only fills a gap left by the
+  // matched release track and the request.
+  const fallbackDurationMs =
+    matchedTrackDurationMs || base.durationMs
+      ? null
+      : ((await deezerGetTrackPreview({ artistName: base.artistName, trackName: base.trackName }))
+          ?.durationMs ?? null);
   base.durationMs = pickResolvedDurationMs({
     playlistDurationMs: base.durationMs,
-    lastfmDurationMs: lastfmDuration,
+    fallbackDurationMs,
     matchedTrackDurationMs,
   });
 

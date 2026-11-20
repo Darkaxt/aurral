@@ -5,7 +5,6 @@ import { formatDateTime } from "../../../utils/dateTime.ts";
 import { SettingsInput } from "../components/SettingsField";
 import { Select } from "../../../components/Select";
 import { useServerSettings } from "../SettingsProviders";
-import { SettingsLink } from "../settingsRoute";
 import type { SettingsState } from "../utils";
 import { formatBytes } from "../utils/formatBytes";
 import { configuredStatus, providerStatus } from "../utils/serviceStatus";
@@ -48,50 +47,6 @@ function useIntegration<K extends "lastfm" | "ticketmaster">(key: K) {
       integrations: { ...settings.integrations, [key]: { ...config, ...patch } },
     });
   return [config, update] as const;
-}
-
-function LastfmDetail() {
-  const [lastfm, update] = useIntegration("lastfm");
-  return (
-    <SettingsPage title="Last.fm" back="Discovery">
-      <SettingsGroup
-        title="API"
-        note={
-          <>
-            Recommendations use ListenBrainz until you add an API key. Last.fm gives closer matches.
-            Scrobbling also needs the secret.{" "}
-            <a
-              href="https://www.last.fm/api/account/create"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="settings-link"
-            >
-              Create an API account
-            </a>
-          </>
-        }
-      >
-        <SettingsRow label="API key" htmlFor="lastfm-api-key">
-          <SettingsInput
-            id="lastfm-api-key"
-            type="password"
-            autoComplete="off"
-            value={lastfm.apiKey || ""}
-            onChange={(event) => update({ apiKey: event.target.value })}
-          />
-        </SettingsRow>
-        <SettingsRow label="Shared secret" htmlFor="lastfm-api-secret">
-          <SettingsInput
-            id="lastfm-api-secret"
-            type="password"
-            autoComplete="off"
-            value={lastfm.apiSecret || ""}
-            onChange={(event) => update({ apiSecret: event.target.value })}
-          />
-        </SettingsRow>
-      </SettingsGroup>
-    </SettingsPage>
-  );
 }
 
 function TicketmasterDetail() {
@@ -222,25 +177,9 @@ function CacheGroup() {
 
   return (
     <SettingsGroup title="Status">
-      <SettingsRow
-        label="Source"
-        help={
-          provider === "listenbrainz" ? (
-            <>
-              <SettingsLink to="discovery/lastfm" className="settings-link">
-                Add a Last.fm API key
-              </SettingsLink>{" "}
-              for closer matches.
-            </>
-          ) : null
-        }
-      >
+      <SettingsRow label="Source">
         <span className="settings-row__value">
-          {provider === "lastfm"
-            ? "Last.fm"
-            : provider === "listenbrainz"
-              ? "ListenBrainz"
-              : "None"}
+          {provider === "listenbrainz" ? "ListenBrainz" : "None"}
         </span>
       </SettingsRow>
       <SettingsRow label="Last updated">
@@ -289,7 +228,6 @@ export function DiscoverySection() {
   const { settings, health } = useServerSettings();
   const item = useSettingsItem();
 
-  if (item === "lastfm") return <LastfmDetail />;
   if (item === "ticketmaster") return <TicketmasterDetail />;
   if (item === "news") return <NewsDetail />;
 
@@ -298,11 +236,6 @@ export function DiscoverySection() {
       <RecommendationsGroup />
       <CacheGroup />
       <SettingsGroup title="Sources">
-        <SettingsServiceRow
-          to="discovery/lastfm"
-          name="Last.fm"
-          status={configuredStatus(Boolean(health?.lastfmConfigured))}
-        />
         <SettingsServiceRow
           to="discovery/ticketmaster"
           name="Ticketmaster"

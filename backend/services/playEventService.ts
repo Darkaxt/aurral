@@ -185,7 +185,7 @@ export const recordPlayEvent = (userId: number, input: PlayEventInput = {}) => {
 export const playEventDeliverySchema = v.looseObject({
   eventId: v.number(),
   userId: v.number(),
-  provider: v.picklist(["lastfm", "listenbrainz", "koito"]),
+  provider: v.picklist(["listenbrainz", "koito"]),
   connectionRevision: v.string(),
 });
 
@@ -204,11 +204,6 @@ export const deliverPlayEvent = async ({
     connection.connectionRevision !== connectionRevision
   )
     return;
-  if (provider === "lastfm") {
-    const { lastfmScrobble } = await import("./apiClients/lastfm.ts");
-    await lastfmScrobble(event, connection.token);
-    return;
-  }
   if (provider === "listenbrainz") {
     const { listenbrainzSubmit } = await import("./apiClients/listenbrainz.ts");
     await listenbrainzSubmit({ token: connection.token, event });

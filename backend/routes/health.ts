@@ -5,7 +5,6 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  getLastfmApiKey,
   getNewsSettings,
   getTicketmasterApiKey,
   getMetadataProviderHealthSnapshot,
@@ -370,7 +369,7 @@ function buildBootstrapPayload(req: CredentialRequest) {
       circuitOpen: lidarrConfigured && lidarrClient.isCircuitOpen(),
     };
     payload.lidarrConfigured = lidarrConfigured;
-    payload.lastfmConfigured = !!getLastfmApiKey();
+    payload.lastfmConfigured = false;
     payload.ticketmasterConfigured = !!getTicketmasterApiKey();
     payload.inboxEnabled = settings.inbox?.enabled !== false;
     const newsSettings = getNewsSettings();

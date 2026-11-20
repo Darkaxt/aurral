@@ -82,7 +82,6 @@ const SETTINGS_SEARCH_METADATA: Partial<Record<SettingsSectionId, SettingsSearch
   listening: {
     sections: ["Services", "Discovery tastes"],
     services: {
-      "Last.fm": "scrobbling listening history username recommendations",
       ListenBrainz: "scrobbling user token listening history username recommendations",
       Koito: "scrobbling API key URL listening history recommendations",
       Spotify: "streaming history data export import zip recommendations",
@@ -195,7 +194,6 @@ const SETTINGS_SEARCH_METADATA: Partial<Record<SettingsSectionId, SettingsSearch
   discovery: {
     sections: ["Recommendations", "Status", "Sources"],
     services: {
-      "Last.fm": "recommendations API key shared secret scrobbling",
       Ticketmaster: "local shows concerts events consumer key radius",
       News: "RSS articles feeds custom",
     },

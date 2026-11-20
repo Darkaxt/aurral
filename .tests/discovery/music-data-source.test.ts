@@ -6,27 +6,13 @@ import {
   setupIsolatedBackend,
 } from "../helpers/backendTestHarness.ts";
 
-// Last.fm answers are scripted per test; null means the request itself failed.
-let lastfmAnswer: (method: string) => unknown = () => null;
-let lastfmCalls: string[] = [];
-
-vi.mock("../../backend/services/apiClients/index.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../backend/services/apiClients/index.ts")>()),
-  lastfmRequest: async (method: string) => {
-    lastfmCalls.push(method);
-    return lastfmAnswer(method);
-  },
-}));
-
-const [isolatedState, { db }, { dbOps }, musicData, { lastfmAvailability }, listenbrainz] =
-  await setupIsolatedBackend(
-    "music-data-source",
-    () => import("../../backend/config/db-sqlite.ts"),
-    () => import("../../backend/db/helpers/index.ts"),
-    () => import("../../backend/services/musicDataSource/index.ts"),
-    () => import("../../backend/services/musicDataSource/lastfm.ts"),
-    () => import("../../backend/services/musicDataSource/listenbrainz.ts"),
-  );
+const [isolatedState, { db }, { dbOps }, musicData, listenbrainz] = await setupIsolatedBackend(
+  "music-data-source",
+  () => import("../../backend/config/db-sqlite.ts"),
+  () => import("../../backend/db/helpers/index.ts"),
+  () => import("../../backend/services/musicDataSource/index.ts"),
+  () => import("../../backend/services/musicDataSource/listenbrainz.ts"),
+);
 const { fuseSimilarArtists, listenbrainzSource } = listenbrainz;
 
 const mbid = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
@@ -34,26 +20,12 @@ const SEED = { name: "Seed Artist", mbid: mbid(1) };
 const KEYLESS_ANSWER = [{ mbid: mbid(90), name: "Keyless Pick", image: null, match: 1 }];
 
 const originalLastfmApiKey = process.env.LASTFM_API_KEY;
-const originalPreference = process.env.AURRAL_MUSIC_DATA_SOURCE;
-
-const setPreference = (musicDataSource?: string) => {
-  dbOps.updateSettings({
-    integrations: { lastfm: musicDataSource ? { musicDataSource } : {} },
-  } as never);
-};
 
 beforeAll(() => {
   resetDatabase(db);
 });
 
 beforeEach(() => {
-  process.env.LASTFM_API_KEY = "test-key";
-  delete process.env.AURRAL_MUSIC_DATA_SOURCE;
-  setPreference();
-  dbOps.invalidateSettingsCache();
-  Object.assign(lastfmAvailability, { failures: 0, consecutiveFailures: 0, unavailableUntil: 0 });
-  lastfmCalls = [];
-  lastfmAnswer = () => null;
   vi.restoreAllMocks();
   vi.spyOn(listenbrainzSource, "getSimilarArtists").mockResolvedValue(KEYLESS_ANSWER as never);
 });
@@ -62,8 +34,6 @@ afterAll(async () => {
   vi.restoreAllMocks();
   if (originalLastfmApiKey === undefined) delete process.env.LASTFM_API_KEY;
   else process.env.LASTFM_API_KEY = originalLastfmApiKey;
-  if (originalPreference === undefined) delete process.env.AURRAL_MUSIC_DATA_SOURCE;
-  else process.env.AURRAL_MUSIC_DATA_SOURCE = originalPreference;
   await cleanupIsolatedState(isolatedState);
 });
 
@@ -105,65 +75,13 @@ test("fusion ranks artists both providers agree on first and keeps single-provid
   );
 });
 
-test("the configured source follows the key and the musicDataSource preference", () => {
-  assert.equal(musicData.getMusicDataSourcePreference(), "auto");
-  assert.equal(musicData.getMusicDataSourceName(), "lastfm");
-
-  setPreference("listenbrainz");
-  assert.equal(musicData.getMusicDataSourcePreference(), "listenbrainz");
-  assert.equal(musicData.getMusicDataSourceName(), "listenbrainz");
-
-  setPreference();
-  process.env.AURRAL_MUSIC_DATA_SOURCE = "keyless";
+test("Last.fm is gone: a leftover key or preference still answers from the keyless providers", async () => {
+  process.env.LASTFM_API_KEY = "leftover-key";
+  dbOps.updateSettings({
+    integrations: { lastfm: { apiKey: "leftover-key", musicDataSource: "lastfm" } },
+  } as never);
   dbOps.invalidateSettingsCache();
+
   assert.equal(musicData.getMusicDataSourceName(), "listenbrainz");
-
-  delete process.env.AURRAL_MUSIC_DATA_SOURCE;
-  delete process.env.LASTFM_API_KEY;
-  dbOps.invalidateSettingsCache();
-  assert.equal(musicData.getMusicDataSourceName(), "listenbrainz");
-});
-
-test("auto answers from the keyless providers while Last.fm is failing, then stops asking it", async () => {
-  lastfmAnswer = () => ({ error: 29, message: "Rate limit exceeded" });
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    assert.deepEqual(await musicData.getSimilarArtists(SEED, { limit: 5 }), KEYLESS_ANSWER);
-  }
-  // Each lookup tries by MBID, then by name; the third failure opens the cooldown.
-  assert.equal(lastfmCalls.length, 4);
-  assert.ok(lastfmAvailability.unavailableUntil > Date.now());
-  const callsBeforeCooldown = lastfmCalls.length;
-
   assert.deepEqual(await musicData.getSimilarArtists(SEED, { limit: 5 }), KEYLESS_ANSWER);
-  assert.equal(lastfmCalls.length, callsBeforeCooldown);
-  // The reported provider stays put during an outage, so discovery caches are not rebuilt.
-  assert.equal(musicData.getMusicDataSourceName(), "lastfm");
-});
-
-test("a Last.fm answer, even an empty one for an unknown artist, is kept", async () => {
-  lastfmAnswer = () => ({
-    similarartists: { artist: [{ name: "Last.fm Pick", mbid: mbid(20), match: "0.8" }] },
-  });
-  assert.deepEqual(
-    (await musicData.getSimilarArtists(SEED, { limit: 5 })).map((artist) => artist.name),
-    ["Last.fm Pick"],
-  );
-
-  lastfmAnswer = () => ({ error: 6, message: "The artist you supplied could not be found" });
-  assert.deepEqual(await musicData.getSimilarArtists(SEED, { limit: 5 }), []);
-  assert.equal(vi.mocked(listenbrainzSource.getSimilarArtists).mock.calls.length, 0);
-  assert.equal(lastfmAvailability.failures, 0);
-});
-
-test("the lastfm preference never falls back, and listenbrainz never calls Last.fm", async () => {
-  lastfmAnswer = () => null;
-  setPreference("lastfm");
-  assert.deepEqual(await musicData.getSimilarArtists(SEED, { limit: 5 }), []);
-  assert.equal(vi.mocked(listenbrainzSource.getSimilarArtists).mock.calls.length, 0);
-
-  setPreference("listenbrainz");
-  lastfmCalls = [];
-  assert.deepEqual(await musicData.getSimilarArtists(SEED, { limit: 5 }), KEYLESS_ANSWER);
-  assert.equal(lastfmCalls.length, 0);
 });

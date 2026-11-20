@@ -52,13 +52,9 @@ export function describeUser(user: SettingsUser, ssoEnabled: boolean) {
     .join(" · ");
 }
 
-function formatListenHistory({ listenHistory: { lastfm, listenbrainz, koito } }: SettingsUser) {
+function formatListenHistory({ listenHistory: { listenbrainz, koito } }: SettingsUser) {
   return (
-    [
-      lastfm ? `Last.fm: ${lastfm}` : null,
-      listenbrainz ? `ListenBrainz: ${listenbrainz}` : null,
-      koito ? `Koito: ${koito}` : null,
-    ]
+    [listenbrainz ? `ListenBrainz: ${listenbrainz}` : null, koito ? `Koito: ${koito}` : null]
       .filter(Boolean)
       .join(" · ") || null
   );

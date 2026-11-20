@@ -5,7 +5,7 @@ import type { SettingsRow } from "../db/rows.ts";
 import { decryptWithKey, encryptWithKey } from "../config/encryption.ts";
 
 const SETTINGS_KEY = "scrobbleConnections";
-type ScrobbleProvider = "lastfm" | "listenbrainz" | "koito";
+type ScrobbleProvider = "listenbrainz" | "koito";
 const storeSchema = v.record(v.string(), v.unknown());
 const providersSchema = v.record(v.string(), v.unknown());
 const storedConnectionSchema = v.looseObject({ token: v.string() });
@@ -20,7 +20,7 @@ type PublicConnectionStatus = {
   configured?: boolean;
 };
 
-const PROVIDERS = new Set<ScrobbleProvider>(["lastfm", "listenbrainz", "koito"]);
+const PROVIDERS = new Set<ScrobbleProvider>(["listenbrainz", "koito"]);
 const getSettingStmt = db.prepare<[string], Pick<SettingsRow, "value">>(
   "SELECT value FROM settings WHERE key = ?",
 );

@@ -78,7 +78,6 @@ interface StoredImportSource {
   artworkUrl?: unknown;
   provider?: unknown;
   externalId?: unknown;
-  externalUsername?: unknown;
   externalName?: unknown;
   syncEnabled?: unknown;
   syncIntervalHours?: unknown;
@@ -120,7 +119,6 @@ const IMPORT_SOURCE_PROVIDERS = new Set([
   "spotify-playlist",
   "listenbrainz-playlist",
   "listenbrainz-createdfor",
-  "lastfm-station",
   "youtube-music-playlist",
   "deezer-playlist",
   "aurral-share",
@@ -269,9 +267,6 @@ export function normalizeImportSource(value: StoredImportSource | null | undefin
   return {
     provider,
     externalId: String(value.externalId || "").trim() || null,
-    ...(provider === "lastfm-station"
-      ? { externalUsername: String(value.externalUsername || "").trim() || null }
-      : {}),
     externalName: String(value.externalName || "").trim() || null,
     artworkUrl:
       typeof value.artworkUrl === "string" && /^https?:\/\//i.test(value.artworkUrl)

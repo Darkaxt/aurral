@@ -168,7 +168,7 @@ test("artist identity comes from BrainzMash names, aliases, and linked provider 
   assert.deepEqual([...requests], []);
 });
 
-test("artist genres come from BrainzMash and Last.fm only fills artists without genres with real genres", async (t: import("vite-plus/test").TestContext) => {
+test("artist genres come from BrainzMash and never from Last.fm, even with a leftover key", async (t: import("vite-plus/test").TestContext) => {
   process.env.LASTFM_API_KEY = "test-key";
   t.onTestFinished(() => {
     delete process.env.LASTFM_API_KEY;
@@ -188,9 +188,8 @@ test("artist genres come from BrainzMash and Last.fm only fills artists without 
     "Obscure Artist",
     await getArtistByMbid(unlinkedArtistMbid),
   );
-  assert.deepEqual(unlinked.genres, ["classic rock"]);
-  assert.equal(requests.length, 1);
-  assert.match(requests[0], /method=artist\.getTopTags$/);
+  assert.ok(Array.isArray(unlinked.genres));
+  assert.ok(!requests.some((url: string) => /audioscrobbler|last\.fm/i.test(url)));
 });
 
 test("artist previews use the BrainzMash Deezer link instead of a name search", async () => {

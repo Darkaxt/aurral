@@ -111,7 +111,6 @@ export const normalizeSettings = (savedSettings: SavedSettings) => {
         ...(savedSettings.integrations?.jellyfin || {}),
       },
       lastfm: {
-        apiKey: "",
         discoveryPeriod: "1month",
         discoveryAutoRefreshHours: normalizedAutoRefreshHours,
         discoveryRecommendationsPerRefresh: normalizedRecommendationsPerRefresh,

@@ -70,7 +70,7 @@ test("pins each scrobble delivery to the connection active when the play was rec
       "SELECT id FROM users WHERE username = ?",
     )
     .get("listener")!.id;
-  const connection = scrobbleStore.scrobbleConnectionStore.saveConnection(userId, "lastfm", {
+  const connection = scrobbleStore.scrobbleConnectionStore.saveConnection(userId, "listenbrainz", {
     token: "session-token",
     displayName: "listener",
   });
@@ -91,7 +91,7 @@ test("pins each scrobble delivery to the connection active when the play was rec
 
 test("one unreadable user entry keeps every other user's scrobble connections", () => {
   const { scrobbleConnectionStore } = scrobbleStore;
-  scrobbleConnectionStore.saveConnection(1, "lastfm", { token: "first-token" });
+  scrobbleConnectionStore.saveConnection(1, "listenbrainz", { token: "first-token" });
   const stored = db
     .prepare<[], { value: string }>("SELECT value FROM settings WHERE key = 'scrobbleConnections'")
     .get();
@@ -99,8 +99,8 @@ test("one unreadable user entry keeps every other user's scrobble connections", 
     JSON.stringify({ ...JSON.parse(stored!.value), 2: null }),
   );
 
-  assert.equal(scrobbleConnectionStore.getConnection(1, "lastfm")?.token, "first-token");
+  assert.equal(scrobbleConnectionStore.getConnection(1, "listenbrainz")?.token, "first-token");
   scrobbleConnectionStore.saveConnection(3, "listenbrainz", { token: "third-token" });
-  assert.equal(scrobbleConnectionStore.getConnection(1, "lastfm")?.token, "first-token");
+  assert.equal(scrobbleConnectionStore.getConnection(1, "listenbrainz")?.token, "first-token");
   assert.equal(scrobbleConnectionStore.getConnection(3, "listenbrainz")?.token, "third-token");
 });

@@ -49,14 +49,14 @@ test("BrainzMash release-track IDs are not treated as recording IDs, and merged 
   );
 });
 
-test("pickResolvedDurationMs takes a Last.fm length only when no other is known", () => {
+test("pickResolvedDurationMs takes the fallback (Deezer) length only when no other is known", () => {
   assert.equal(
-    pickResolvedDurationMs({ playlistDurationMs: 282973, lastfmDurationMs: 207000 }),
+    pickResolvedDurationMs({ playlistDurationMs: 282973, fallbackDurationMs: 207000 }),
     282973,
   );
-  assert.equal(pickResolvedDurationMs({ lastfmDurationMs: 207000 }), 207000);
+  assert.equal(pickResolvedDurationMs({ fallbackDurationMs: 207000 }), 207000);
   assert.equal(
-    pickResolvedDurationMs({ lastfmDurationMs: null, matchedTrackDurationMs: 207000 }),
+    pickResolvedDurationMs({ fallbackDurationMs: null, matchedTrackDurationMs: 207000 }),
     207000,
   );
 });
@@ -468,7 +468,7 @@ test("resolveTrackSearchContext drops an unverified stored recording ID", async 
   assert.equal(resolved.trackMbid, null);
 });
 
-test("resolveTrackSearchContext takes neither a recording ID nor a length from Last.fm", async (t: import("vite-plus/test").TestContext) => {
+test("resolveTrackSearchContext never asks Last.fm, even with a leftover key", async (t: import("vite-plus/test").TestContext) => {
   const originalSettings = dbOps.getSettings();
   dbOps.updateSettings({
     ...originalSettings,
@@ -486,7 +486,11 @@ test("resolveTrackSearchContext takes neither a recording ID nor a length from L
     clearMetadataProviderCaches();
     dbOps.updateSettings(originalSettings);
   });
+  const lastfmCalls: string[] = [];
   vi.spyOn(axios, "get").mockImplementation(async (url, options) => {
+    if (/audioscrobbler|last\.fm/i.test(String(url)) || options?.params?.method) {
+      lastfmCalls.push(String(url));
+    }
     if (options?.params?.method === "track.getInfo") {
       return {
         status: 200,
@@ -544,6 +548,7 @@ test("resolveTrackSearchContext takes neither a recording ID nor a length from L
     durationMs: 369626,
   });
   assert.equal(fromRelease.durationMs, 369626);
+  assert.deepEqual(lastfmCalls, []);
 });
 
 function stubMetadata(

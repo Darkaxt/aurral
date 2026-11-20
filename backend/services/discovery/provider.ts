@@ -1,5 +1,5 @@
 import { dbOps, userOps } from "../../db/helpers/index.ts";
-import { lastfmRequest, listenbrainzRequest } from "../apiClients/index.ts";
+import { listenbrainzRequest } from "../apiClients/index.ts";
 import { cachedArtistGuess, guessArtistMbid } from "../artistMatch.ts";
 import { asAppError } from "../../../lib/errors.ts";
 import { logger } from "../logger.ts";
@@ -181,30 +181,7 @@ export const fetchListenHistoryArtists = async (
       limit: 50,
     });
   }
-
-  const userTopArtists = await lastfmRequest(
-    "user.getTopArtists",
-    {
-      user: account,
-      limit: 50,
-      period: discoveryPeriod,
-    },
-    { timeoutMs: 12000, maxRetries: 2 },
-  );
-
-  const artists = userTopArtists?.topartists?.artist;
-  if (!artists) return [];
-  return (Array.isArray(artists) ? artists : [artists])
-    .map((artist) => {
-      const artistName = String(artist?.name || "").trim();
-      if (!artistName) return null;
-      return {
-        mbid: String(artist.mbid || "").trim() || cachedArtistGuess(artistName) || null,
-        artistName,
-        playcount: parseInt(artist.playcount || 0, 10) || 0,
-      };
-    })
-    .filter((artist) => artist !== null);
+  return [];
 };
 
 export const rerankCachedRecommendations = ({
@@ -416,15 +393,14 @@ const collectUserSeeds = async (user: DiscoveryUser, feedback: DiscoveryFeedback
   const externalHistory = await Promise.all(
     LISTEN_HISTORY_PROVIDERS.map(async (provider) => {
       const account = history[provider];
-      if (history.navidrome && provider === "lastfm") return [];
       if (!account || period === "none") return [];
       try {
         const artists = await fetchListenHistoryArtists(provider, account, period, user.id);
         return artists.map((artist) => ({ ...artist, source: provider }));
       } catch (error) {
-          // A configured local authority becoming unavailable must preserve the
-          // prior recommendation cache, rather than rebuild from zero history.
-          if (provider === "navidrome") throw error;
+        // A configured local authority becoming unavailable must preserve the
+        // prior recommendation cache, rather than rebuild from zero history.
+        if (provider === "navidrome") throw error;
         logger.error(
           "discovery",
           `[Discovery] Failed to fetch ${provider} artists for user ${user.id}: ${asAppError(error)?.message}`,
@@ -433,10 +409,12 @@ const collectUserSeeds = async (user: DiscoveryUser, feedback: DiscoveryFeedback
       }
     }),
   );
-  const localHistory = (history.navidrome ? [] : getTopPlayedArtists(user.id, { limit: 50 })).map((artist) => ({
-    ...artist,
-    source: "local",
-  }));
+  const localHistory = (history.navidrome ? [] : getTopPlayedArtists(user.id, { limit: 50 })).map(
+    (artist) => ({
+      ...artist,
+      source: "local",
+    }),
+  );
   const spotifyHistory = getTopSpotifyImportArtists(user.id, 50).map((artist) => ({
     ...artist,
     source: "spotify",

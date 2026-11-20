@@ -29,7 +29,6 @@ const [
   operationQueueModule,
   loggerModule,
   listenbrainzPlaylistsModule,
-  lastfmStationsModule,
   youtubeMusicPlaylistsModule,
   { api },
   { orderJobsByPlaylistTracks, rebuildStaticPlaylistTracksFromJobs },
@@ -49,7 +48,6 @@ const [
   () => import("../../backend/services/playlists/playlistOperationQueue.ts"),
   () => import("../../backend/services/logger.ts"),
   () => import("../../backend/services/importLists/listenbrainzPlaylists.ts"),
-  () => import("../../backend/services/importLists/lastfmStations.ts"),
   () => import("../../backend/services/importLists/youtubeMusicPlaylists.ts"),
   () => import("../../backend/routes/api.ts"),
   () => import("../../backend/services/playlists/playlistTracks.ts"),
@@ -69,7 +67,6 @@ const { flowTrackSource } = flowTrackSourceModule;
 const { playlistManager } = playlistManagerModule;
 const { spotifyClient } = spotifyClientModule;
 const { listenbrainzPlaylistClient } = listenbrainzPlaylistsModule;
-const { lastfmStationClient } = lastfmStationsModule;
 const { youtubeMusicPlaylistClient } = youtubeMusicPlaylistsModule;
 const { syncStaticPlaylistImport } = importSyncModule;
 const { enqueueImportedPlaylist } = importPlaylistModule;
@@ -343,12 +340,6 @@ test("external import routes log fetch failures with the provider reason", async
           .spyOn(listenbrainzPlaylistClient, "getPlaylistTracks")
           .mockRejectedValue(new Error(reason)),
     },
-    {
-      route: "/import/lastfm",
-      reason: "Last.fm timed out",
-      fail: (reason: string) =>
-        vi.spyOn(lastfmStationClient, "getStationTracks").mockRejectedValue(new Error(reason)),
-    },
   ];
 
   for (const { route, reason, fail } of providers) {
@@ -578,7 +569,6 @@ test("flow refresh clears playback before downloads finish", async () => {
     dbOps.updateSettings({
       ...dbOps.getSettings(),
       integrations: {
-        lastfm: { apiKey: "test" },
         slskd: { enabled: true, url: "http://slskd", apiKey: "test" },
       },
     });
@@ -624,7 +614,6 @@ test("a failed flow plan leaves the current playlist and jobs untouched", async 
     dbOps.updateSettings({
       ...dbOps.getSettings(),
       integrations: {
-        lastfm: { apiKey: "test" },
         slskd: { enabled: true, url: "http://slskd", apiKey: "test" },
       },
     });
@@ -664,7 +653,6 @@ test("a stale flow plan does not cancel jobs when settings change during plannin
     dbOps.updateSettings({
       ...dbOps.getSettings(),
       integrations: {
-        lastfm: { apiKey: "test" },
         slskd: { enabled: true, url: "http://slskd", apiKey: "test" },
       },
     });
@@ -710,7 +698,6 @@ test("renaming a flow while it plans still applies the plan", async () => {
     dbOps.updateSettings({
       ...dbOps.getSettings(),
       integrations: {
-        lastfm: { apiKey: "test" },
         slskd: { enabled: true, url: "http://slskd", apiKey: "test" },
       },
     });
@@ -755,7 +742,6 @@ test("a playlist edit queued while a flow plans runs without waiting for the pla
     dbOps.updateSettings({
       ...dbOps.getSettings(),
       integrations: {
-        lastfm: { apiKey: "test" },
         slskd: { enabled: true, url: "http://slskd", apiKey: "test" },
       },
     });
@@ -815,7 +801,6 @@ test("a queued flow stops before mutation when its owner becomes suspended", asy
     dbOps.updateSettings({
       ...dbOps.getSettings(),
       integrations: {
-        lastfm: { apiKey: "test" },
         slskd: { enabled: true, url: "http://slskd", apiKey: "test" },
       },
     });
@@ -1423,57 +1408,6 @@ test("failed import sync logs the reason and preserves it on the playlist", asyn
     assert.equal(importSourceOf(playlist.id).lastSyncError, "ListenBrainz request timed out");
   } finally {
     listenbrainzPlaylistClient.getGeneratedPlaylistTracks = originalGetGeneratedPlaylistTracks;
-  }
-});
-
-test("Last.fm station sync refreshes the saved station and username", async () => {
-  const originalStart = downloadWorker.start;
-  const originalGetStationTracks = lastfmStationClient.getStationTracks;
-  downloadWorker.start = async () => {};
-  try {
-    const playlist = flowPlaylistConfig.createStaticPlaylist({
-      name: "Last.fm Mix",
-      ownerUserId: 7,
-      tracks: [{ artistName: "Old Artist", trackName: "Old Song" }],
-      importSource: {
-        provider: "lastfm-station",
-        externalId: "mix",
-        externalUsername: "station-user",
-        syncEnabled: true,
-        syncIntervalHours: 24,
-      },
-    });
-    const requests: { userId: number | undefined; station: unknown; username: unknown }[] = [];
-    lastfmStationClient.getStationTracks = async (userId, station, username) => {
-      requests.push({ userId, station, username });
-      return {
-        tracks: [playlistTrack({ artistName: "New Artist", trackName: "New Song" })],
-        stats: { incomplete: 0, duplicate: 0 },
-        user: "station-user",
-      };
-    };
-
-    await syncStaticPlaylistImport({
-      playlistId: playlist.id,
-      user: { id: 7 },
-      force: true,
-    });
-
-    assert.deepEqual(requests, [{ userId: 7, station: "mix", username: "station-user" }]);
-    assert.deepEqual(
-      requireFixture(flowPlaylistConfig.getStaticPlaylist(playlist.id)).tracks.map(
-        ({ artistName, trackName }) => ({
-          artistName,
-          trackName,
-        }),
-      ),
-      [{ artistName: "New Artist", trackName: "New Song" }],
-    );
-    assert.equal(importSourceOf(playlist.id).externalUsername, "station-user");
-  } finally {
-    lastfmStationClient.getStationTracks = originalGetStationTracks;
-    downloadWorker.start = originalStart;
-    downloadWorker.stop();
   }
 });
 

@@ -12491,14 +12491,6 @@ button.native-library-genre-row:focus-visible {
   line-height: 1.45;
 }
 
-.playlist-import__lastfm-setup {
-  display: grid;
-  gap: 0.75rem;
-  padding: 1rem;
-  background: var(--aurral-surface);
-  border-radius: var(--aurral-radius);
-}
-
 .playlist-import__account {
   display: flex;
   align-items: center;

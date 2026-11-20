@@ -5,7 +5,6 @@ import type { ArtistDetailsResponse } from "../../../utils/api/endpoints/artists
 import type { AppSettingsResponse } from "../../../utils/api/clients/settings.ts";
 import type { LibraryArtistRecord } from "../hooks/useArtistDetailsStream.ts";
 import lidarrLogo from "../../../../images/logos/lidarr-color.svg";
-import lastFmLogo from "../../../../images/logos/last-fm-color.svg";
 import musicBrainzLogo from "../../../../images/logos/musicbrainz-color.svg";
 import listenBrainzLogo from "../../../../images/logos/listenbrainz-color.svg";
 
@@ -120,14 +119,6 @@ export function ArtistDetailsAbout({
             label: "Lidarr",
             href: lidarrHref,
             logo: lidarrLogo,
-          }
-        : null,
-      artist?.name
-        ? {
-            key: "lastfm",
-            label: "Last.fm",
-            href: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-            logo: lastFmLogo,
           }
         : null,
       artist?.id && UUID_REGEX.test(artist.id)

@@ -413,9 +413,6 @@ test("new releases pick a release track from metadata before Last.fm fallbacks",
       releaseMbid: null,
     },
   ];
-  source._getLastfmAlbumInfo = async () => {
-    throw new Error("Last.fm should not be needed");
-  };
 
   const track = await source._pickTrackFromRelease({
     artistName: "Library Artist",
@@ -433,7 +430,6 @@ test("new releases pick a release track from metadata before Last.fm fallbacks",
 test("new releases do not substitute an unrelated artist top track", async () => {
   const source = new FlowTrackSource();
   source._getMetadataAlbumTrackList = async () => [];
-  source._getLastfmAlbumInfo = async () => null;
   source._getArtistTopTrackList = async () => [
     topTrack("Sober to Death", "Twin Fantasy (Face to Face)"),
   ];
@@ -451,7 +447,6 @@ test("new releases do not substitute an unrelated artist top track", async () =>
 test("new releases accept an artist top track only when the album matches", async () => {
   const source = new FlowTrackSource();
   source._getMetadataAlbumTrackList = async () => [];
-  source._getLastfmAlbumInfo = async () => null;
   source._getArtistTopTrackList = async () => [
     topTrack("Sober to Death", "Twin Fantasy (Face to Face)"),
     topTrack("Joe Gets Kicked", "Teen of Denial (Joe's Story)"),

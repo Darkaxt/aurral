@@ -52,15 +52,12 @@ export const integrationSettingsSchema = v.looseObject({
     configuredByUserId: count,
   }),
   jellyfin: service({ url: text, apiKey: text, userId: text }),
+  // Discovery settings only: the Last.fm integration itself was removed.
   lastfm: service({
-    apiKey: text,
-    apiSecret: text,
     discoveryPeriod: text,
     discoveryAutoRefreshHours: count,
     discoveryRecommendationsPerRefresh: count,
     discoveryMode: text,
-    // "auto" | "lastfm" | "listenbrainz"; see services/musicDataSource/index.ts.
-    musicDataSource: text,
   }),
   slskd: service({
     enabled: flag,

@@ -83,7 +83,7 @@ const updateUserBody = v.object({
   allowIdentityAdoption: v.optional(v.boolean()),
 });
 const listenHistoryBody = v.partial(
-  v.object({ lastfm: nullableText, listenbrainz: nullableText, koito: nullableText, navidrome: nullableText }),
+  v.object({ listenbrainz: nullableText, koito: nullableText, navidrome: nullableText }),
 );
 const themeBody = v.object({ theme: v.optional(v.unknown()) });
 const discoverLayoutBody = v.object({ layout: v.optional(v.unknown()) });
@@ -306,7 +306,9 @@ export default new Hono<AppEnv>()
       try {
         const { history, changed } = updateListenHistory(c.var.user.id, c.req.valid("json"));
         if (changed) {
-          const refresh = requestUserDiscoveryRefresh(c.var.user.id, { reason: "listening_history" });
+          const refresh = requestUserDiscoveryRefresh(c.var.user.id, {
+            reason: "listening_history",
+          });
           if ("operationId" in refresh && refresh.operationId != null)
             c.header("X-Aurral-History-Refresh-Operation", String(refresh.operationId));
         }

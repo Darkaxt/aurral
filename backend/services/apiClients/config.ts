@@ -6,16 +6,6 @@ import {
   getMetadataProviderHealthSnapshot as getBrainzmashHealthSnapshot,
 } from "../providers/brainzmashProvider.ts";
 
-export const getLastfmApiKey = () => {
-  const settings = dbOps.getSettings();
-  return settings.integrations?.lastfm?.apiKey || process.env.LASTFM_API_KEY;
-};
-
-export const getLastfmApiSecret = () => {
-  const settings = dbOps.getSettings();
-  return settings.integrations?.lastfm?.apiSecret || process.env.LASTFM_API_SECRET;
-};
-
 export const getTicketmasterApiKey = () => {
   const settings = dbOps.getSettings();
   const configuredValue = settings.integrations?.ticketmaster?.apiKey;

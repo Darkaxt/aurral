@@ -5,7 +5,6 @@ import { queryClient, queryKeys } from "../../queryClient.ts";
 import { playlistJobsQueryOptions } from "../../queryOptions.ts";
 import { formatNextRun } from "./flowPageUtils";
 import { getPlaylistRunActivity } from "./playlistRunActivity";
-import lastfmLogo from "../../../images/logos/last-fm-color.svg";
 import listenbrainzLogo from "../../../images/logos/listenbrainz-color.svg";
 import spotifyLogo from "../../../images/logos/spotify-color.svg";
 import youtubeMusicLogo from "../../../images/logos/youtube-music-color.svg";
@@ -22,7 +21,6 @@ export const SYNCABLE_IMPORT_PROVIDERS = new Set<string | null | undefined>([
   "spotify-playlist",
   "listenbrainz-playlist",
   "listenbrainz-createdfor",
-  "lastfm-station",
   "youtube-music-playlist",
   "deezer-playlist",
   "aurral-share",
@@ -38,7 +36,6 @@ export const SYNC_INTERVAL_OPTIONS = [
 
 export function getImportedProviderLogo(provider: string | null | undefined) {
   if (String(provider || "").startsWith("listenbrainz-")) return listenbrainzLogo;
-  if (provider === "lastfm-station") return lastfmLogo;
   if (provider === "youtube-music-playlist") return youtubeMusicLogo;
   if (provider === "deezer-playlist") return deezerLogo;
   if (provider === "spotify-playlist") return spotifyLogo;
@@ -48,7 +45,6 @@ export function getImportedProviderLogo(provider: string | null | undefined) {
 
 export function getImportedProviderLabel(provider: string | null | undefined) {
   if (String(provider || "").startsWith("listenbrainz-")) return "ListenBrainz";
-  if (provider === "lastfm-station") return "Last.fm";
   if (provider === "youtube-music-playlist") return "YouTube Music";
   if (provider === "deezer-playlist") return "Deezer";
   if (provider === "aurral-share") return "Aurral share";

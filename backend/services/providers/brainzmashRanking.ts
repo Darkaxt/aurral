@@ -177,21 +177,21 @@ function positiveMs(value: unknown) {
 }
 
 // The length of the matched MusicBrainz release track, then the length the
-// request carried. Last.fm lengths are often a radio edit, so they only fill
-// a gap.
+// request carried. Fallback (Deezer) lengths are often a radio edit, so they
+// only fill a gap.
 export function pickResolvedDurationMs({
   playlistDurationMs = null,
-  lastfmDurationMs = null,
+  fallbackDurationMs = null,
   matchedTrackDurationMs = null,
 }: {
   playlistDurationMs?: unknown;
-  lastfmDurationMs?: unknown;
+  fallbackDurationMs?: unknown;
   matchedTrackDurationMs?: unknown;
 } = {}) {
   return (
     positiveMs(matchedTrackDurationMs) ||
     positiveMs(playlistDurationMs) ||
-    positiveMs(lastfmDurationMs)
+    positiveMs(fallbackDurationMs)
   );
 }
 

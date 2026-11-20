@@ -27,9 +27,6 @@ export function DiscoverHistoryPrompt({ userId }: { userId: string | number | un
         Make Discover yours with your listening history.
       </p>
       <div className="discover-history-prompt__actions">
-        <SettingsLink to="listening/lastfm" className="btn btn-secondary btn-sm">
-          Last.fm
-        </SettingsLink>
         <SettingsLink to="listening/listenbrainz" className="btn btn-secondary btn-sm">
           ListenBrainz
         </SettingsLink>

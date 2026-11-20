@@ -18,10 +18,7 @@ import "./Settings/settings.css";
 
 const SettingsModal = lazy(() => import("./Settings/SettingsModal"));
 
-const HISTORY_SOURCES = [
-  { provider: "lastfm", name: "Last.fm" },
-  { provider: "listenbrainz", name: "ListenBrainz" },
-] as const;
+const HISTORY_SOURCES = [{ provider: "listenbrainz", name: "ListenBrainz" }] as const;
 
 const SERVICES = [
   { id: "navidrome", name: "Navidrome", to: "playback/navidrome" },

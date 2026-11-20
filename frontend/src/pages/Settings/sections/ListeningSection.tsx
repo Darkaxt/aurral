@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseResponse, type InferRequestType, type InferResponseType } from "hono/client";
@@ -14,7 +14,6 @@ import { SettingsCommitInput, SettingsInput } from "../components/SettingsField"
 import { readApiError } from "../utils/apiError.ts";
 import { formatDate } from "../../../utils/dateTime.ts";
 import { readSpotifyExport } from "../../../utils/spotifyExportFiles.ts";
-import { SettingsLink } from "../settingsRoute";
 import {
   SettingsActions,
   SettingsGroup,
@@ -32,10 +31,9 @@ type ListenHistoryUpdate = InferRequestType<
   (typeof usersClient.me)["listening-history"]["$patch"]
 >["json"];
 
-const PROVIDERS = ["lastfm", "listenbrainz", "koito"] as const;
+const PROVIDERS = ["listenbrainz", "koito"] as const;
 type ScrobbleProvider = (typeof PROVIDERS)[number];
 const PROVIDER_LABELS: Record<ScrobbleProvider, string> = {
-  lastfm: "Last.fm",
   listenbrainz: "ListenBrainz",
   koito: "Koito",
 };
@@ -114,93 +112,6 @@ function useScrobbleActions(provider: ScrobbleProvider) {
     );
 
   return { busy, run, refresh, disconnect };
-}
-
-function LastfmDetail({ status }: { status: ConnectionStatus }) {
-  const { hasPermission } = useAuth();
-  const { showError } = useToast();
-  const { busy, refresh, disconnect } = useScrobbleActions("lastfm");
-  const pollRef = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-    },
-    [],
-  );
-
-  const connect = async () => {
-    try {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-      const result = await parseResponse(scrobblingClient.lastfm.link.$get());
-      const popup = result.authorizeUrl
-        ? window.open(result.authorizeUrl, "aurral-lastfm-link", "popup,width=600,height=700")
-        : null;
-      if (!popup) {
-        showError(
-          result.authorizeUrl ? "Allow popups to link Last.fm." : "Couldn't start Last.fm linking.",
-        );
-        return;
-      }
-      const deadline = Date.now() + 3 * 60 * 1000;
-      pollRef.current = window.setInterval(() => {
-        if (!popup.closed && Date.now() < deadline) return;
-        if (pollRef.current) window.clearInterval(pollRef.current);
-        pollRef.current = null;
-        void refresh();
-      }, 500);
-    } catch (error) {
-      const failure = readApiError(error);
-      showError(failure.error || failure.text || "Couldn't start Last.fm linking");
-    }
-  };
-
-  if (status?.configured !== true) {
-    return (
-      <SettingsGroup title="Scrobbling">
-        <SettingsNote>
-          {hasPermission("accessSettings") ? (
-            <>
-              Add a Last.fm API key and secret in{" "}
-              <SettingsLink to="discovery/lastfm" className="settings-link">
-                Discovery
-              </SettingsLink>{" "}
-              first.
-            </>
-          ) : (
-            "An admin needs to add a Last.fm API key before you can connect."
-          )}
-        </SettingsNote>
-      </SettingsGroup>
-    );
-  }
-
-  return (
-    <SettingsGroup
-      title="Scrobbling"
-      note={
-        status?.connected
-          ? `${connectedLabel(status)}.`
-          : "Sign in to Last.fm to send it your plays."
-      }
-    >
-      <SettingsActions>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={connect}>
-          {status.connected ? "Relink Last.fm" : "Connect Last.fm"}
-        </button>
-        {status.connected ? (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={busy}
-            onClick={disconnect}
-          >
-            Disconnect
-          </button>
-        ) : null}
-      </SettingsActions>
-    </SettingsGroup>
-  );
 }
 
 function TokenDetail({
@@ -310,9 +221,7 @@ function ServiceDetail({ provider }: { provider: ScrobbleProvider }) {
       </SettingsGroup>
       {!canScrobble ? null : scrobbleStatus.isError ? (
         <SettingsNote tone="warning">Couldn&apos;t load scrobbling.</SettingsNote>
-      ) : !scrobbleStatus.data ? null : provider === "lastfm" ? (
-        <LastfmDetail status={scrobbleStatus.data.lastfm} />
-      ) : (
+      ) : !scrobbleStatus.data ? null : (
         <TokenDetail provider={provider} status={scrobbleStatus.data[provider]} />
       )}
     </SettingsPage>
@@ -323,11 +232,22 @@ function NavidromeHistoryDetail() {
   const { history, save } = useListenHistory();
   return (
     <SettingsPage title="Navidrome" back="Listening">
-      <SettingsGroup title="Listening history" note="Use your Navidrome listening activity for recommendations and listening summaries. Scrobbling is not required.">
-        <SettingsRow label="Navidrome username" htmlFor="navidrome-history-account" help="Use the listening account assigned to your Aurral user. Clear it to stop using this history.">
-          <SettingsCommitInput id="navidrome-history-account" autoComplete="off"
-            disabled={!history} value={history?.navidrome ?? ""}
-            onCommit={(value) => save({ navidrome: value.trim() || null })} />
+      <SettingsGroup
+        title="Listening history"
+        note="Use your Navidrome listening activity for recommendations and listening summaries. Scrobbling is not required."
+      >
+        <SettingsRow
+          label="Navidrome username"
+          htmlFor="navidrome-history-account"
+          help="Use the listening account assigned to your Aurral user. Clear it to stop using this history."
+        >
+          <SettingsCommitInput
+            id="navidrome-history-account"
+            autoComplete="off"
+            disabled={!history}
+            value={history?.navidrome ?? ""}
+            onCommit={(value) => save({ navidrome: value.trim() || null })}
+          />
         </SettingsRow>
       </SettingsGroup>
     </SettingsPage>
@@ -534,8 +454,18 @@ export function ListeningSection() {
             }
           />
         ))}
-        <SettingsServiceRow to="listening/navidrome" name="Navidrome"
-          status={history ? { label: history.navidrome ? `History · ${history.navidrome}` : "Not set up", tone: history.navidrome ? undefined : "muted" } : null} />
+        <SettingsServiceRow
+          to="listening/navidrome"
+          name="Navidrome"
+          status={
+            history
+              ? {
+                  label: history.navidrome ? `History · ${history.navidrome}` : "Not set up",
+                  tone: history.navidrome ? undefined : "muted",
+                }
+              : null
+          }
+        />
         <SettingsServiceRow
           to="listening/spotify"
           name="Spotify"

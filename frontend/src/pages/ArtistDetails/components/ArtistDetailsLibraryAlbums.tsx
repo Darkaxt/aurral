@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreVertical,
-  ExternalLink,
   Trash2,
   RefreshCw,
 } from "../../../components/icons";
@@ -81,9 +80,10 @@ export function ArtistDetailsLibraryAlbums({
   const [completionFilter, setCompletionFilter] = useState<"all" | "incomplete" | "complete">(
     "all",
   );
-  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(
-    null,
-  );
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const downloadedAlbums = libraryAlbums.filter((album) =>
     isVisibleLibraryAlbum(album, { requestingAlbum }),
   );
@@ -199,7 +199,9 @@ export function ArtistDetailsLibraryAlbums({
       (libraryAlbum.statistics?.sizeOnDisk ?? 0) > 0 ||
       (libraryAlbum.statistics?.trackFileCount ?? 0) > 0;
     if (libraryAlbum.canonicalId && hasFiles) {
-      return { to: `/library/album/${encodeURIComponent(libraryAlbum.canonicalId)}` };
+      return {
+        to: `/library/album/${encodeURIComponent(libraryAlbum.canonicalId)}`,
+      };
     }
     return getLibraryAlbumLink(libraryAlbum, {
       artistMbid: artist?.id,
@@ -417,128 +419,111 @@ export function ArtistDetailsLibraryAlbums({
                   ) : null}
                 </div>
 
-                <div className="artist-library-card__menu">
-                  <div className="artist-relative">
-                    <TooltipButton
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (albumDropdownOpen === rgId) {
-                          setAlbumDropdownOpen(null);
-                          setDropdownPosition(null);
-                          return;
-                        }
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const menuWidth = 192;
-                        const viewportPadding = 12;
-                        setDropdownPosition({
-                          top: rect.bottom + 8,
-                          left: Math.min(
-                            Math.max(viewportPadding, rect.right - menuWidth),
-                            window.innerWidth - menuWidth - viewportPadding,
-                          ),
-                        });
-                        setAlbumDropdownOpen(rgId);
-                      }}
-                      className="btn btn-surface btn-icon-square"
-                      title="Options"
-                      aria-label={`Album options for ${libraryAlbum.albumName}`}
-                    >
-                      <MoreVertical className="artist-icon-sm" />
-                    </TooltipButton>
-                    {albumDropdownOpen === rgId && (
-                      <>
-                        <div
-                          className="artist-backdrop-button"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                {(canDeleteAlbum || (canReSearch && canReSearchAlbum)) && (
+                  <div className="artist-library-card__menu">
+                    <div className="artist-relative">
+                      <TooltipButton
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (albumDropdownOpen === rgId) {
                             setAlbumDropdownOpen(null);
                             setDropdownPosition(null);
-                          }}
-                        />
-                        <div
-                          className="artist-floating-menu"
-                          style={{
-                            top: dropdownPosition?.top ?? 0,
-                            left: dropdownPosition?.left ?? 0,
-                          }}
-                        >
-                          <a
-                            href={`https://www.last.fm/music/${encodeURIComponent(
-                              String(artist.name),
-                            )}/${encodeURIComponent(String(libraryAlbum.albumName))}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="artist-menu-item"
-                            onClick={() => {
+                            return;
+                          }
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const menuWidth = 192;
+                          const viewportPadding = 12;
+                          setDropdownPosition({
+                            top: rect.bottom + 8,
+                            left: Math.min(
+                              Math.max(viewportPadding, rect.right - menuWidth),
+                              window.innerWidth - menuWidth - viewportPadding,
+                            ),
+                          });
+                          setAlbumDropdownOpen(rgId);
+                        }}
+                        className="btn btn-surface btn-icon-square"
+                        title="Options"
+                        aria-label={`Album options for ${libraryAlbum.albumName}`}
+                      >
+                        <MoreVertical className="artist-icon-sm" />
+                      </TooltipButton>
+                      {albumDropdownOpen === rgId && (
+                        <>
+                          <div
+                            className="artist-backdrop-button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setAlbumDropdownOpen(null);
                               setDropdownPosition(null);
                             }}
+                          />
+                          <div
+                            className="artist-floating-menu"
+                            style={{
+                              top: dropdownPosition?.top ?? 0,
+                              left: dropdownPosition?.left ?? 0,
+                            }}
                           >
-                            <span className="artist-menu-item__main">
-                              <ExternalLink className="artist-icon-sm" />
-                              View on Last.fm
-                            </span>
-                          </a>
-                          {canReSearch && canReSearchAlbum && (
-                            <>
-                              <div
-                                className="native-library-item-menu__separator"
-                                role="separator"
-                              />
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleReSearchAlbum(libraryAlbum.id, libraryAlbum.albumName);
-                                  setAlbumDropdownOpen(null);
-                                  setDropdownPosition(null);
-                                }}
-                                className="artist-menu-item"
-                                disabled={reSearchingAlbum === libraryAlbum.id}
-                              >
-                                <span className="artist-menu-item__main">
-                                  {reSearchingAlbum === libraryAlbum.id ? (
-                                    <DotLoader size="sm" label={null} />
-                                  ) : (
-                                    <RefreshCw className="artist-icon-sm" />
-                                  )}
-                                  {reSearchingAlbum === libraryAlbum.id
-                                    ? "Searching..."
-                                    : "Re-search"}
-                                </span>
-                              </button>
-                            </>
-                          )}
-                          {canDeleteAlbum && (
-                            <>
-                              <div
-                                className="native-library-item-menu__separator"
-                                role="separator"
-                              />
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteAlbumClick(rgId, libraryAlbum.albumName);
-                                  setDropdownPosition(null);
-                                }}
-                                className="artist-menu-item artist-menu-item--danger"
-                              >
-                                <span className="artist-menu-item__main">
-                                  <Trash2 className="artist-icon-sm" />
-                                  {libraryAlbum.managedBy === "aurral"
-                                    ? "Remove album"
-                                    : "Delete album"}
-                                </span>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </>
-                    )}
+                            {canReSearch && canReSearchAlbum && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReSearchAlbum(libraryAlbum.id, libraryAlbum.albumName);
+                                    setAlbumDropdownOpen(null);
+                                    setDropdownPosition(null);
+                                  }}
+                                  className="artist-menu-item"
+                                  disabled={reSearchingAlbum === libraryAlbum.id}
+                                >
+                                  <span className="artist-menu-item__main">
+                                    {reSearchingAlbum === libraryAlbum.id ? (
+                                      <DotLoader size="sm" label={null} />
+                                    ) : (
+                                      <RefreshCw className="artist-icon-sm" />
+                                    )}
+                                    {reSearchingAlbum === libraryAlbum.id
+                                      ? "Searching..."
+                                      : "Re-search"}
+                                  </span>
+                                </button>
+                              </>
+                            )}
+                            {canDeleteAlbum && (
+                              <>
+                                {canReSearch && canReSearchAlbum && (
+                                  <div
+                                    className="native-library-item-menu__separator"
+                                    role="separator"
+                                  />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteAlbumClick(rgId, libraryAlbum.albumName);
+                                    setDropdownPosition(null);
+                                  }}
+                                  className="artist-menu-item artist-menu-item--danger"
+                                >
+                                  <span className="artist-menu-item__main">
+                                    <Trash2 className="artist-icon-sm" />
+                                    {libraryAlbum.managedBy === "aurral"
+                                      ? "Remove album"
+                                      : "Delete album"}
+                                  </span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               <OptionalLink

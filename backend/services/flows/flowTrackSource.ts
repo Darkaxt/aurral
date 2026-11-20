@@ -2,7 +2,6 @@ import {
   deezerGetAlbumTracks,
   getDeezerAlbumsForArtist,
   getDeezerArtist,
-  lastfmRequest,
   normalizeTitle,
 } from "../apiClients/index.ts";
 import * as musicData from "../musicDataSource/index.ts";
@@ -481,45 +480,6 @@ export class FlowTrackSource {
     return null;
   }
 
-  async _pickTrackFromRangesWithOwnedAlbumsViaInfo(
-    trackList: ArtistTopTrack[],
-    ownedTitles: Set<string>,
-    ownedAlbums: Set<string>,
-    artistName: string,
-    ranges: DeepDiveRange[],
-  ) {
-    let checked = 0;
-    const maxChecks = 12;
-    for (const range of ranges) {
-      const candidates = this._sliceRange(trackList, range.start, range.end).filter((track) => {
-        const name = String(track?.name || "")
-          .trim()
-          .toLowerCase();
-        return name && !ownedTitles.has(name);
-      });
-      for (const candidate of shuffled(candidates)) {
-        if (checked >= maxChecks) return null;
-        checked += 1;
-        const trackName = String(candidate?.name || "").trim();
-        if (!trackName) continue;
-        try {
-          const info = await lastfmRequest("track.getInfo", {
-            artist: artistName,
-            track: trackName,
-            autocorrect: 1,
-          });
-          const albumTitle = String(info?.track?.album?.title || "").trim();
-          if (albumTitle && !ownedAlbums.has(albumTitle.toLowerCase())) {
-            return { pick: candidate, albumName: albumTitle };
-          }
-        } catch {
-          continue;
-        }
-      }
-    }
-    return null;
-  }
-
   async _pickTrackFromRangesWithOwnedAlbums(
     trackList: ArtistTopTrack[],
     ownedTitles: Set<string>,
@@ -527,20 +487,11 @@ export class FlowTrackSource {
     artistName: string,
     ranges: DeepDiveRange[],
   ) {
-    return (
-      this._pickTrackFromRangesWithOwnedAlbumsUsingListMetadata(
-        trackList,
-        ownedTitles,
-        ownedAlbums,
-        ranges,
-      ) ??
-      this._pickTrackFromRangesWithOwnedAlbumsViaInfo(
-        trackList,
-        ownedTitles,
-        ownedAlbums,
-        artistName,
-        ranges,
-      )
+    return this._pickTrackFromRangesWithOwnedAlbumsUsingListMetadata(
+      trackList,
+      ownedTitles,
+      ownedAlbums,
+      ranges,
     );
   }
 
@@ -1095,13 +1046,6 @@ export class FlowTrackSource {
     return getAlbumTracksByAlbumMbid(safeAlbumMbid);
   }
 
-  async _getLastfmAlbumInfo(artistName: string, albumTitle: string) {
-    return lastfmRequest("album.getInfo", {
-      artist: artistName,
-      album: albumTitle,
-    });
-  }
-
   async _pickTrackFromRelease({
     artistName,
     albumTitle,
@@ -1122,13 +1066,6 @@ export class FlowTrackSource {
       try {
         pick =
           this._pickTopAlbumTrackInfo(await this._getMetadataAlbumTrackList(albumMbid))[0] || null;
-      } catch {}
-    }
-
-    if (!pick) {
-      try {
-        const data = await this._getLastfmAlbumInfo(normalizedArtist, normalizedAlbum);
-        pick = this._pickTopAlbumTrackInfo(data?.album?.tracks?.track)[0] || null;
       } catch {}
     }
 

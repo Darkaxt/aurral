@@ -11,7 +11,6 @@ export const isVerboseConsoleEnabled = (env = process.env) =>
 
 export const MUSICBRAINZ_API = "https://musicbrainz.org/ws/2";
 export const DEFAULT_METADATA_BASE_URL = "https://lidarrapi.brainzmash.cc";
-export const LASTFM_API = "https://ws.audioscrobbler.com/2.0/";
 export const LISTENBRAINZ_API = "https://api.listenbrainz.org";
 export const LISTENBRAINZ_LABS_API = "https://labs.api.listenbrainz.org";
 export const APP_NAME = "Aurral";
@@ -51,8 +50,6 @@ export const defaultData = {
         userId: "",
       },
       lastfm: {
-        apiKey: "",
-        apiSecret: "",
         discoveryPeriod: "1month",
         discoveryAutoRefreshHours: 168,
         discoveryRecommendationsPerRefresh: 200,
