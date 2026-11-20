@@ -143,7 +143,13 @@ const sourceRank = (
   order: SourceOrder,
 ) => (order === "album" ? (source.albumPriority ?? source.priority) : source.priority);
 
+// minipc fork: AURRAL_DOWNLOADS_DISABLED=true turns every download source off,
+// including the yt-dlp binary the Docker image bundles and enables by default,
+// so a side-by-side instance never acquires anything.
+export const downloadsDisabled = () => process.env.AURRAL_DOWNLOADS_DISABLED === "true";
+
 export function getEnabledDownloadSources(order: SourceOrder = "track") {
+  if (downloadsDisabled()) return [];
   const status = getDownloadSourceStatus();
   const sources = [];
   if (status.slskd.configured) sources.push(status.slskd);

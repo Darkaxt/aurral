@@ -32,6 +32,7 @@ import {
   resolveReleaseManifest,
 } from "./releaseResolver.ts";
 import {
+  downloadsDisabled,
   getDownloadSourceNotConfiguredMessage,
   getEnabledDownloadSources,
   isAlbumGrabSource,
@@ -539,8 +540,12 @@ async function processSourcePayload(payload: PipelinePayload): Promise<PipelineP
   if (inactiveOwner) return inactiveOwner;
   if (payload.source === "share") {
     // minipc fork: a share link download has no bounded-size admission.
-    if (isLifecycleEnabled()) {
-      if (currentJob) await failJob(currentJob, LIFECYCLE_SOURCE_REJECTED);
+    if (isLifecycleEnabled() || downloadsDisabled()) {
+      if (currentJob)
+        await failJob(
+          currentJob,
+          downloadsDisabled() ? getDownloadSourceNotConfiguredMessage() : LIFECYCLE_SOURCE_REJECTED,
+        );
       return null;
     }
     return processShareDownload(payload);

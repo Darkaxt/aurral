@@ -1,4 +1,5 @@
 import { asAppError } from "../../../lib/errors.ts";
+import { isAnyDownloadSourceConfigured } from "../downloadSourceService.ts";
 import { flowPlaylistConfig } from "../playlists/flowPlaylistConfig.ts";
 import type { FlowConfig } from "../playlists/flowPlaylistConfig.ts";
 import { playlistOperationQueue } from "../playlists/playlistOperationQueue.ts";
@@ -16,6 +17,8 @@ function isFlowOwnerActive(flow: FlowConfig) {
 }
 
 export async function runScheduledFlowRefresh() {
+  // minipc fork: a flow run with no download source only creates failed jobs.
+  if (!isAnyDownloadSourceConfigured()) return;
   const due = flowPlaylistConfig.getDueForRefresh();
   if (due.length === 0) return;
 

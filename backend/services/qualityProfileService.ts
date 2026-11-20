@@ -1,4 +1,5 @@
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { isAnyDownloadSourceConfigured } from "./downloadSourceService.ts";
 import path from "path";
 import { parseFile } from "music-metadata";
 import { db } from "../config/db-sqlite.ts";
@@ -269,6 +270,8 @@ export async function runQualityUpgradeCheck({
 }: { force?: boolean; playlistIds?: string[] | null; limit?: number } = {}) {
   const profile = getQualityProfile();
   if (!force && !profile.automaticUpgrades) return 0;
+  // minipc fork: never queue upgrades that no source can download.
+  if (!isAnyDownloadSourceConfigured()) return 0;
   const owners = playlistIds ? new Set(playlistIds) : null;
   const addedByOwner = new Map<string | null, number>();
   const isUnmonitored = indexUnmonitoredJobs();
