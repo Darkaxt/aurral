@@ -1,3 +1,4 @@
+import { isLifecycleEnabled } from "./lifecycleAdmission.ts";
 import { lifecycleProtectedFiles } from "./lifecycleProtection.ts";
 import PQueue from "p-queue";
 import fsp from "fs/promises";
@@ -568,6 +569,27 @@ async function dropDownloadJobs(jobIds: Set<string | null | undefined>) {
   }
   return [...committedPaths];
 }
+
+// minipc fork: refuse a file deletion before anything else is removed (download jobs,
+// monitoring state) when the music lifecycle protects one of the files.
+async function lifecycleDeletionRefusal(paths: string[]) {
+  const protectedFiles = await lifecycleProtectedFiles(
+    paths.map((filePath) => path.resolve(filePath)),
+  );
+  if (protectedFiles.size === 0) return null;
+  return {
+    error: `Kept ${protectedFiles.size} file(s) the music lifecycle protects (${[...new Set(protectedFiles.values())].join(", ")})`,
+    statusCode: 409,
+    code: "lifecycle_protected",
+  };
+}
+
+const aurralTrackPaths = (tracks: { files: { source?: string; path?: string | null }[] }[]) =>
+  tracks.flatMap((track) =>
+    track.files
+      .filter((file) => file.source === "aurral" && file.path)
+      .map((file) => String(file.path)),
+  );
 
 async function deleteAurralLibraryFiles(paths: string[]) {
   const folders = { downloadRoot: resolveDownloadRoot(), readOnlyRoots: readOnlyFolderPaths() };
@@ -1875,8 +1897,12 @@ export class LibraryManager {
     album: LibraryAlbumRecord,
     library: LibraryCollection,
     deleteFiles: boolean,
-  ) {
+  ): Promise<{ error?: string; statusCode?: number; code?: string }> {
     const tracks = library.tracks.filter((track) => album.trackIds.includes(track.id));
+    if (deleteFiles && isLifecycleEnabled()) {
+      const refusal = await lifecycleDeletionRefusal(aurralTrackPaths(tracks));
+      if (refusal) return refusal;
+    }
     let committedPaths;
     try {
       committedPaths = await removeLibraryDownloadJobs(library, tracks, {
@@ -1923,6 +1949,17 @@ export class LibraryManager {
   }
 
   async _deleteArtist(artist: LibraryArtistProjection, deleteFiles: boolean) {
+    if (deleteFiles && isLifecycleEnabled()) {
+      const preflight = libraryForArtist(artist.id);
+      const refusal = await lifecycleDeletionRefusal(
+        aurralTrackPaths(
+          preflight.tracks.filter((track) =>
+            preflight.albums.some((album) => album.trackIds.includes(track.id)),
+          ),
+        ),
+      );
+      if (refusal) return { success: false, ...refusal };
+    }
     setLibraryManagement({
       entityKind: "artist",
       entityId: Number(artist.id),
@@ -2359,6 +2396,11 @@ export class LibraryManager {
 
       const aurralFiles = track.files.filter((file) => file.source === "aurral" && file.path);
       if (aurralFiles.length > 0) {
+        // Only when the lifecycle runs: an await here would defer the job cancellation below.
+        if (isLifecycleEnabled()) {
+          const refusal = await lifecycleDeletionRefusal(aurralFiles.map((file) => file.path));
+          if (refusal) return { success: false, code: refusal.code, error: refusal.error };
+        }
         let committedPaths;
         try {
           committedPaths = await removeLibraryDownloadJobs(library, [track]);
