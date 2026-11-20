@@ -1,5 +1,6 @@
 import type { PipelinePayload } from "./downloadPipeline.ts";
 import path from "path";
+import { isLifecycleHold } from "./lifecycleAdmission.ts";
 import { asAppError } from "../../lib/errors.ts";
 import fs from "fs/promises";
 import type { Dirent } from "fs";
@@ -1221,6 +1222,8 @@ async function handleDownload(payload: SlskdPayload, helpers: SlskdHelpers) {
         return transfers;
       });
     } catch (error) {
+      if (isLifecycleHold(error))
+        return { ...payload, delaySeconds: 60, lifecycleHold: (error as Error).message };
       if (isSoulseekLoggedOutError(error))
         return waitForSoulseekLogin(payload, job, helpers, asAppError(error)?.message);
       return (
@@ -1275,6 +1278,8 @@ async function handleDownload(payload: SlskdPayload, helpers: SlskdHelpers) {
       return { transferId, username: transferUsername };
     });
   } catch (error) {
+    if (isLifecycleHold(error))
+      return { ...payload, delaySeconds: 60, lifecycleHold: (error as Error).message };
     if (isSoulseekLoggedOutError(error))
       return waitForSoulseekLogin(payload, job, helpers, asAppError(error)?.message);
     const message = asAppError(error)?.message || String(error);

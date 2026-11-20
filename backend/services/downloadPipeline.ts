@@ -60,6 +60,12 @@ import { removeLegacyUsenetDownload } from "./usenetSource.ts";
 import { removeLegacyDeemixDownload } from "./deemixSource.ts";
 import { recordTrackJobFailed } from "./aurralHistoryService.ts";
 import { finalizeQualityUpgradeFailure } from "./qualityUpgradeOutcome.ts";
+import {
+  isLifecycleEnabled,
+  isLifecycleSourceAllowed,
+  LIFECYCLE_SOURCE_REJECTED,
+  withLifecycleJob,
+} from "./lifecycleAdmission.ts";
 
 // Runs one step of a download job: it picks the next enabled source in
 // priority order and hands the step to that source's adapter. Every source
@@ -511,7 +517,12 @@ export async function processPipelinePayload(payload: PipelinePayload) {
     throw new Error("Invalid pipeline payload");
   }
   keepHeldForReview(payload);
-  const nextPayload = await processSourcePayload(payload);
+  const nextPayload = await withLifecycleJob(
+    payload,
+    downloadTracker.getJob(payload.jobId),
+    () => processSourcePayload(payload),
+    payload.albumGrab === true ? albumGrabJobs(payload).map((entry) => entry.id) : [payload.jobId],
+  );
   keepHeldForReview(nextPayload);
   await settleDroppedAlbumGrab(payload, nextPayload);
   if (nextPayload?.jobId !== payload.jobId) await discardHeldForReview(payload);
@@ -526,7 +537,14 @@ async function processSourcePayload(payload: PipelinePayload): Promise<PipelineP
   const currentJob = downloadTracker.getJob(payload.jobId);
   const inactiveOwner = deferForInactiveOwner(payload, currentJob);
   if (inactiveOwner) return inactiveOwner;
-  if (payload.source === "share") return processShareDownload(payload);
+  if (payload.source === "share") {
+    // minipc fork: a share link download has no bounded-size admission.
+    if (isLifecycleEnabled()) {
+      if (currentJob) await failJob(currentJob, LIFECYCLE_SOURCE_REJECTED);
+      return null;
+    }
+    return processShareDownload(payload);
+  }
   if (!isAnyDownloadSourceConfigured()) {
     const job = downloadTracker.getJob(payload.jobId);
     if (job) {
@@ -570,6 +588,12 @@ async function processSourcePayload(payload: PipelinePayload): Promise<PipelineP
     return processSourcePayload(nextPayload);
   }
   const { source, jobId } = payload;
+  if (!isLifecycleSourceAllowed(source, payload.phase)) {
+    // minipc fork: holding a disallowed source re-queued the job every minute
+    // forever and starved the queue; treat it as that source's failure instead.
+    const job = downloadTracker.getJob(jobId);
+    return job ? failOrTryNextSource(payload, job, LIFECYCLE_SOURCE_REJECTED) : null;
+  }
   if (payload.albumGrab === true && ["search", "finalize"].includes(payload.phase) && currentJob) {
     if (await attemptRelease(payload, currentJob)) {
       if (payload.releaseWaits) payload = { ...payload, releaseWaits: null, delaySeconds: 0 };

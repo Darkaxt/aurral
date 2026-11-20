@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { lifecycleBatch } from "./lifecycleAdmission.ts";
 import { createHttpClient, type HttpOptions } from "../../lib/http.ts";
 import { randomUUID } from "crypto";
 import { dbOps } from "../db/helpers/index.ts";
@@ -1072,37 +1073,57 @@ export class SlskdClient {
         filename: String(file.filename || file.file || "").trim(),
         size: Number(file.size || 0),
       }));
-      let retryCount = 0;
-      let delaySeconds = 30;
-      while (retryCount <= 3) {
-        const endpoint = `/api/v0/transfers/downloads/${encodeURIComponent(normalizedUsername)}`;
-        const response = await client.post(endpoint, requests);
-        if ([200, 201, 207].includes(response.status)) {
-          const { enqueued: transfers = [], failed = [] } = readOne(enqueueSchema, response.data, {
-            service: "slskd",
-            endpoint,
-          });
-          if (requests.length > 0 && failed.length >= requests.length && transfers.length === 0) {
-            throw new Error(`slskd enqueue failed: ${summarizeBatchFailures(failed)}`);
+      const submit = async () => {
+        let retryCount = 0;
+        let delaySeconds = 30;
+        while (retryCount <= 3) {
+          const endpoint = `/api/v0/transfers/downloads/${encodeURIComponent(normalizedUsername)}`;
+          const response = await client.post(endpoint, requests);
+          if ([200, 201, 207].includes(response.status)) {
+            const { enqueued: transfers = [], failed = [] } = readOne(
+              enqueueSchema,
+              response.data,
+              {
+                service: "slskd",
+                endpoint,
+              },
+            );
+            if (requests.length > 0 && failed.length >= requests.length && transfers.length === 0) {
+              throw Object.assign(
+                new Error(`slskd enqueue failed: ${summarizeBatchFailures(failed)}`),
+                { lifecycleDefiniteReject: true },
+              );
+            }
+            return {
+              transferId: transfers[0]?.id || null,
+              username: normalizedUsername,
+              transfers,
+            };
           }
-          return {
-            transferId: transfers[0]?.id || null,
-            username: normalizedUsername,
-            transfers,
-          };
+          if (response.status === 429 && retryCount < 3) {
+            await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+            retryCount += 1;
+            delaySeconds *= 2;
+            continue;
+          }
+          const detail = `HTTP ${response.status} ${String(response.data || "")}`;
+          // A 4xx answer is a definite refusal: the transfer was never queued.
+          const lifecycleDefiniteReject = response.status >= 400 && response.status < 500;
+          if (/must be connected and logged in/i.test(detail))
+            throw Object.assign(soulseekLoggedOutError(`enqueue refused (${detail})`), {
+              lifecycleDefiniteReject,
+            });
+          throw Object.assign(new Error(`slskd enqueue failed: ${detail}`), {
+            lifecycleDefiniteReject,
+          });
         }
-        if (response.status === 429 && retryCount < 3) {
-          await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
-          retryCount += 1;
-          delaySeconds *= 2;
-          continue;
-        }
-        const detail = `HTTP ${response.status} ${String(response.data || "")}`;
-        if (/must be connected and logged in/i.test(detail))
-          throw soulseekLoggedOutError(`enqueue refused (${detail})`);
-        throw new Error(`slskd enqueue failed: ${detail}`);
-      }
-      throw new Error("slskd enqueue busy after retries");
+        throw new Error("slskd enqueue busy after retries");
+      };
+      return lifecycleBatch(normalizedUsername, requests, submit, async () => {
+        const result = await client.get("/api/v0/transfers/downloads");
+        if (result.status !== 200) throw new Error("Cannot observe original transfers");
+        return result.data;
+      });
     });
   }
 
