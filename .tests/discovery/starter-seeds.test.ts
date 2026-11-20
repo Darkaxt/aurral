@@ -60,29 +60,40 @@ const similarMbids = new Map(
     `00000000-0000-4000-8000-00000000000${index + 1}`,
   ]),
 );
+const seedMbids = new Map(
+  ["Chart Star", "Jazz Lead", "Jazz Second"].map((name, index) => [
+    name,
+    `00000000-0000-4000-8000-00000000010${index + 1}`,
+  ]),
+);
 const originalFetch = globalThis.fetch;
-const originalLastfmApiKey = process.env.LASTFM_API_KEY;
 
 beforeAll(() => {
   resetDatabase(db);
   dbOps.invalidateSettingsCache();
-  process.env.LASTFM_API_KEY = "test-key";
-  globalThis.fetch = async (url) => {
-    const params = new URL(String(url)).searchParams;
-    const body =
-      params.get("method") === "artist.getSimilar"
-        ? {
-            similarartists: {
-              artist: [
-                {
-                  name: `Like ${params.get("artist")}`,
-                  mbid: similarMbids.get(params.get("artist") ?? ""),
-                  match: "0.9",
-                },
-              ],
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    const params = url.searchParams;
+    let body: unknown = {};
+    if (url.hostname === "lidarrapi.brainzmash.cc" && url.pathname === "/search/artist") {
+      const name = params.get("query") ?? "";
+      body = seedMbids.has(name) ? [{ id: seedMbids.get(name), artistname: name }] : [];
+    } else if (
+      url.hostname === "labs.api.listenbrainz.org" &&
+      url.pathname === "/similar-artists/json"
+    ) {
+      const seed = [...seedMbids].find(([, id]) => id === params.get("artist_mbids"))?.[0];
+      body = seed
+        ? [
+            {
+              artist_mbid: similarMbids.get(seed),
+              name: `Like ${seed}`,
+              score: 900,
+              reference_mbid: params.get("artist_mbids"),
             },
-          }
-        : {};
+          ]
+        : [];
+    }
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -118,8 +129,6 @@ beforeAll(() => {
 
 afterAll(async () => {
   globalThis.fetch = originalFetch;
-  if (originalLastfmApiKey === undefined) delete process.env.LASTFM_API_KEY;
-  else process.env.LASTFM_API_KEY = originalLastfmApiKey;
   await cleanupIsolatedState(isolatedState);
 });
 

@@ -170,8 +170,10 @@ test("discoveryNeedsRefresh rebuilds a fresh cache that came from the other musi
   delete process.env.LASTFM_API_KEY;
   assert.equal(discoveryNeedsRefresh({ ...fresh, provider: "lastfm" }), true);
   assert.equal(discoveryNeedsRefresh({ ...fresh, provider: "listenbrainz" }), false);
+  // A leftover Last.fm key no longer switches the data source.
   process.env.LASTFM_API_KEY = "test-key";
-  assert.equal(discoveryNeedsRefresh({ ...fresh, provider: "listenbrainz" }), true);
+  assert.equal(discoveryNeedsRefresh({ ...fresh, provider: "listenbrainz" }), false);
+  delete process.env.LASTFM_API_KEY;
 });
 
 test("discoveryNeedsRefresh returns false for fresh populated cache", () => {

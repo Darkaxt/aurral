@@ -46,47 +46,68 @@ const SHOEGAZE_TOP_ARTISTS = [
   { name: "Shoegaze Third", mbid: mbid(22) },
 ];
 
+const PLAYED = { name: "Played Artist", mbid: mbid(4) };
+const DISLIKED = { name: "Disliked Artist", mbid: mbid(5) };
+
 const similarBySeed = new Map([
   [LIKED.mbid, [FROM_LIKED, BLOCKED, LIBRARY]],
-  ["Played Artist", [FROM_PLAYED]],
+  [PLAYED.mbid, [FROM_PLAYED]],
   [LIBRARY.mbid, [FROM_LIBRARY]],
-  ["Disliked Artist", [FROM_DISLIKED]],
+  [DISLIKED.mbid, [FROM_DISLIKED]],
 ]);
+const mbidByName = new Map(
+  [
+    LIKED,
+    BLOCKED,
+    LIBRARY,
+    PLAYED,
+    DISLIKED,
+    FROM_LIKED,
+    FROM_PLAYED,
+    FROM_LIBRARY,
+    FROM_DISLIKED,
+  ].map((artist) => [artist.name, artist.mbid]),
+);
 
 const originalFetch = globalThis.fetch;
-const originalLastfmApiKey = process.env.LASTFM_API_KEY;
 let alice: NonNullable<ReturnType<typeof userOps.createUser>>;
 let bob: NonNullable<ReturnType<typeof userOps.createUser>>;
 
-const lastfmResponse = (url: string) => {
-  const params = new URL(String(url)).searchParams;
-  const seed = params.get("mbid") || params.get("artist");
-  if (params.get("method") === "artist.getTopTags") {
-    return {
-      toptags: {
-        tag: ["female vocalists", "shoegaze", "seen live", "dream-pop", "indie"].map((name) => ({
-          name,
+// The ListenBrainz/MusicBrainz data source (Last.fm is gone): names resolve
+// through BrainzMash, similar artists come from ListenBrainz Labs, tags from
+// ListenBrainz metadata and tag listings from MusicBrainz search.
+const musicDataResponse = (input: string) => {
+  const url = new URL(input);
+  const params = url.searchParams;
+  if (url.hostname === "lidarrapi.brainzmash.cc" && url.pathname === "/search/artist") {
+    const name = params.get("query") ?? "";
+    const id = mbidByName.get(name);
+    return id ? [{ id, artistname: name }] : [];
+  }
+  if (url.hostname === "labs.api.listenbrainz.org" && url.pathname === "/similar-artists/json") {
+    const seed = params.get("artist_mbids") ?? "";
+    return (similarBySeed.get(seed) || []).map((artist) => ({
+      artist_mbid: artist.mbid,
+      name: artist.name,
+      score: 900,
+      reference_mbid: seed,
+    }));
+  }
+  if (url.hostname === "api.listenbrainz.org" && url.pathname === "/1/metadata/artist/") {
+    return (params.get("artist_mbids") ?? "").split(",").map((artistMbid) => ({
+      artist_mbid: artistMbid,
+      tag: {
+        artist: ["female vocalists", "shoegaze", "seen live", "dream-pop", "indie"].map((tag) => ({
+          tag,
           count: 100,
         })),
       },
-    };
+    }));
   }
-  if (params.get("method") === "tag.getTopArtists") {
+  if (url.hostname === "musicbrainz.org" && url.pathname === "/ws/2/artist") {
     return {
-      topartists: {
-        artist: SHOEGAZE_TOP_ARTISTS.map((artist) => ({ ...artist, image: [] })),
-        "@attr": { total: String(SHOEGAZE_TOP_ARTISTS.length) },
-      },
-    };
-  }
-  if (params.get("method") === "artist.getSimilar") {
-    return {
-      similarartists: {
-        artist: (similarBySeed.get(seed ?? "") || []).map((artist) => ({
-          ...artist,
-          match: "0.9",
-        })),
-      },
+      count: SHOEGAZE_TOP_ARTISTS.length,
+      artists: SHOEGAZE_TOP_ARTISTS.map((artist) => ({ id: artist.mbid, name: artist.name })),
     };
   }
   return {};
@@ -104,9 +125,8 @@ const play = (userId: number, artist: string, index: number) =>
 beforeAll(() => {
   resetDatabase(db);
   dbOps.invalidateSettingsCache();
-  process.env.LASTFM_API_KEY = "test-key";
   globalThis.fetch = async (url) =>
-    new Response(JSON.stringify(lastfmResponse(String(url))), {
+    new Response(JSON.stringify(musicDataResponse(String(url))), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -145,8 +165,6 @@ beforeEach(() => {
 
 afterAll(async () => {
   globalThis.fetch = originalFetch;
-  if (originalLastfmApiKey === undefined) delete process.env.LASTFM_API_KEY;
-  else process.env.LASTFM_API_KEY = originalLastfmApiKey;
   await cleanupIsolatedState(isolatedState);
 });
 
@@ -267,7 +285,7 @@ test("flows without an owner read the first admin's pool", async () => {
   }
 });
 
-test("tag search lists the tag's artists in Last.fm order without the user's recommendations", async () => {
+test("tag search lists the tag's artists in the tag source's order without the user's recommendations", async () => {
   const { status, body } = await requestApi(alice.id, "/search?scope=tag&q=%23shoegaze");
   assert.equal(status, 200);
   assert.deepEqual(
