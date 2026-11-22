@@ -232,3 +232,60 @@ test("the pipeline keeps a queued job unchanged while admission is unavailable",
   assert.equal(next?.source, "ytdlp");
   assert.equal(downloadTracker.getJob(jobId)?.status, "pending");
 });
+
+test("a released identical request is never replayed or held forever", async () => {
+  const { createHash } = await import("node:crypto");
+  const ledger = await enableWithStateFile();
+  const identity =
+    "aurral:" +
+    createHash("sha256")
+      .update(JSON.stringify(request("j")))
+      .digest("hex");
+  ledger
+    .prepare("INSERT INTO reservations VALUES(?,?,'released',?,?)")
+    .run(identity, 10, JSON.stringify({ request: request("j") }), Date.now() / 1000);
+  const files = [{ filename: "a.flac", size: 10 }];
+  const run = (transfers: unknown[]) => {
+    const posts: unknown[] = [];
+    const result = admission.withLifecycleJob(
+      { jobId: "j", phase: "poll" },
+      { albumMbid: "album" },
+      () =>
+        admission.lifecycleBatch(
+          "peer",
+          files,
+          async () => {
+            posts.push(files);
+            return { transfers: [] };
+          },
+          async () => [{ username: "peer", directories: [{ files: transfers }] }],
+        ),
+    );
+    return { posts, result };
+  };
+  try {
+    // Nothing left in slskd: give up on this candidate (not a hold), so the pipeline moves on.
+    const gone = run([]);
+    await assert.rejects(gone.result, (error: { lifecycleDefiniteReject?: boolean }) => {
+      assert.equal(admission.isLifecycleHold(error), false);
+      assert.equal(error.lifecycleDefiniteReject, true);
+      return true;
+    });
+    const failed = run([{ id: "t0", filename: "a.flac", size: 10, state: "Completed, Errored" }]);
+    await assert.rejects(failed.result, (error) => !admission.isLifecycleHold(error));
+    // A transfer that is still running keeps the job waiting.
+    const running = run([{ id: "t1", filename: "a.flac", size: 10, state: "InProgress" }]);
+    await assert.rejects(running.result, (error) => admission.isLifecycleHold(error));
+    // A finished transfer is reused instead of being downloaded again.
+    const done = run([{ id: "t2", filename: "a.flac", size: 10, state: "Completed, Succeeded" }]);
+    const receipt = (await done.result) as { transferId?: string };
+    assert.equal(receipt.transferId, "t2");
+    for (const attempt of [gone, failed, running, done]) assert.deepEqual(attempt.posts, []);
+    assert.equal(
+      ledger.prepare<[], { phase: string }>("SELECT phase FROM reservations").get()?.phase,
+      "released",
+    );
+  } finally {
+    ledger.close();
+  }
+});

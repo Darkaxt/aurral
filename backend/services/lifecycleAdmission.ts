@@ -324,8 +324,25 @@ export async function lifecycleBatch<T>(
     if (prior) {
       const saved = parse<Saved>(prior.external_ids, {});
       if (prior.phase === "active" && saved.response) return receipt(saved.response);
-      if (prior.phase === "released")
-        throw new LifecycleHold("Original transfer is terminal; do not automatically replay it");
+      if (prior.phase === "released") {
+        // The identical request was dispatched before and its reservation has
+        // been released. Never POST it again. Holding it, though, would retry
+        // the same request every minute forever. Instead, reuse a finished
+        // transfer, wait for one that is still running, or give up on this
+        // candidate so the pipeline moves on to the next one.
+        const earlier = observedResponse(request, transferRows(await observe()));
+        const states = earlier?.transfers.map((item) => String(item.state || "")) ?? [];
+        if (earlier && states.some((value) => !value.startsWith("Completed")))
+          throw new LifecycleHold("The original candidate still owns an active transfer");
+        if (earlier && states.every((value) => value === "Completed, Succeeded"))
+          return receipt(earlier);
+        throw Object.assign(
+          new Error(
+            "Original transfer is terminal; trying the next candidate instead of replaying it",
+          ),
+          { lifecycleDefiniteReject: true },
+        );
+      }
       const response = observedResponse(request, transferRows(await observe()));
       if (!response)
         throw new LifecycleHold(
