@@ -143,7 +143,11 @@ export class PlaylistManager {
       await this._ensureFlowArtwork(id, names.get(id) ?? entity.name, flow ? "Flow" : "Playlist");
       const tracks = await collectPlaylistFileTracks(id);
       const filePath = path.join(this.libraryRoot, fileName);
-      if (await writePlaylistFile(filePath, buildPlaylistFile(tracks), { force: rewrite })) {
+      const content = buildPlaylistFile(tracks, {
+        folder: this.libraryRoot,
+        root: this.downloadRoot,
+      });
+      if (await writePlaylistFile(filePath, content, { force: rewrite })) {
         changed.push(id);
         uploads.push({ title: playlistTitle(fileName), path: filePath, empty: !tracks.length });
         if (!rewrite)

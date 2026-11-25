@@ -47,12 +47,28 @@ export function playlistDisplayNames(entities: readonly NamedEntity[]) {
   return names;
 }
 
-export function buildPlaylistFile(tracks: readonly PlaylistFileTrack[]) {
+// fork: a track inside `root` is written relative to the playlist folder, so a
+// media server that mounts the Library at another path (Navidrome at /music,
+// Aurral at /app/downloads) still finds it. Other tracks keep their full path.
+function playlistEntryPath(trackPath: string, place?: { folder: string; root: string }) {
+  if (!place || !path.isAbsolute(trackPath)) return trackPath;
+  const inside = path.relative(path.resolve(place.root), path.resolve(trackPath));
+  if (!inside || inside.startsWith("..") || path.isAbsolute(inside)) return trackPath;
+  return path
+    .relative(path.resolve(place.folder), path.resolve(trackPath))
+    .split(path.sep)
+    .join("/");
+}
+
+export function buildPlaylistFile(
+  tracks: readonly PlaylistFileTrack[],
+  place?: { folder: string; root: string },
+) {
   const lines = ["#EXTM3U"];
   for (const track of tracks) {
     const seconds = Math.max(0, Math.round((track.durationMs ?? 0) / 1000));
     lines.push(`#EXTINF:${seconds},${track.artist} - ${track.title}`);
-    lines.push(track.path);
+    lines.push(playlistEntryPath(track.path, place));
   }
   return `${lines.join("\n")}\n`;
 }

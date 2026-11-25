@@ -17,7 +17,7 @@ const [
   { playlistManager },
   { flowPlaylistConfig, invalidateFlowPlaylistConfigCache },
   { downloadTracker },
-  { playlistDisplayNames },
+  { playlistDisplayNames, buildPlaylistFile },
   plex,
 ] = await setupIsolatedBackend(
   "playlist-files",
@@ -87,16 +87,17 @@ function pendingSyncs() {
   );
 }
 
-test("writes a playlist file with full paths and rewrites it once later", async () => {
+test("writes a playlist file with Library-relative paths and rewrites it once later", async () => {
   const playlist = flowPlaylistConfig.createStaticPlaylist({ name: "Road: Trip" });
   await addDownloadedTrack(playlist.id, "Song A");
 
   await playlistManager.syncPlaylists({ entityIds: [playlist.id] });
 
   assert.deepEqual(await playlistFiles(), ["Road_ Trip.m3u"]);
+  // fork: relative to _playlists, so a media server mounting the Library elsewhere resolves it
   assert.equal(
     await fs.readFile(path.join(libraryRoot, "Road_ Trip.m3u"), "utf8"),
-    `#EXTM3U\n#EXTINF:61,Artist - Song A\n${path.join(downloadRoot, "Artist", "Album", "Song A.flac")}\n`,
+    `#EXTM3U\n#EXTINF:61,Artist - Song A\n../Artist/Album/Song A.flac\n`,
   );
   const [rewrite] = pendingSyncs();
   assert.ok(rewrite);
@@ -107,6 +108,31 @@ test("writes a playlist file with full paths and rewrites it once later", async 
   await playlistManager.syncPlaylists({ entityIds: [playlist.id], rewrite: true });
   await playlistManager.syncPlaylists({ entityIds: [playlist.id] });
   assert.deepEqual(pendingSyncs(), []);
+});
+
+test("keeps full paths for tracks outside the Library folder", () => {
+  const place = { folder: libraryRoot, root: downloadRoot };
+  const outside = path.resolve(downloadRoot, "..", "Elsewhere", "Song.flac");
+  const flow = path.join(downloadRoot, "_flows", "abc", "Artist", "Song B.mp3");
+  assert.equal(
+    buildPlaylistFile(
+      [
+        { path: outside, title: "Song", artist: "A" },
+        { path: flow, title: "Song B", artist: "B", durationMs: 1000 },
+        { path: "relative/already.flac", title: "C", artist: "C" },
+      ],
+      place,
+    ),
+    `#EXTM3U
+#EXTINF:0,A - Song
+${outside}
+#EXTINF:1,B - Song B
+../_flows/abc/Artist/Song B.mp3
+` +
+      `#EXTINF:0,C - C
+relative/already.flac
+`,
+  );
 });
 
 test("a later change pushes the pending rewrite out again", async () => {
