@@ -105,8 +105,8 @@ export function deniedAlbumSources(jobs: JobFields<"deniedRemoteSources">[], sou
   );
 }
 
-// Blocks the attempted release for every track it did not fill, so neither
-// the next album attempt nor a per-track search takes it again.
+// Blocks the attempted release for every track it did not fill. Each source
+// decides whether the exclusion also applies to individual track downloads.
 export function blockAlbumGrabSource(payload: AlbumGrabPayload, jobs: DownloadJob[]) {
   const candidate = getPayloadCandidate(payload);
   const raw = isRecord(candidate?.raw) ? candidate.raw : null;
@@ -291,6 +291,17 @@ export async function finishAlbumGrab<Payload extends PipelinePayload>(
     ]),
   );
   const playlistRoot = resolveDownloadRoot();
+  const importedSource = source === "soulseek" ? "slskd" : source;
+  const grabLeader = downloadTracker.getJob(payload.jobId);
+  const albumMetadata = {
+    downloadSource: grabLeader?.downloadSource || importedSource,
+    downloadClient: grabLeader?.downloadClient || importedSource,
+    releaseGuid: grabLeader?.releaseGuid ?? null,
+    releaseTitle: grabLeader?.releaseTitle ?? null,
+    indexerId: grabLeader?.indexerId ?? null,
+    indexerName: grabLeader?.indexerName ?? null,
+    remoteUsername: grabLeader?.remoteUsername ?? null,
+  };
   for (const match of assigned.accepted) {
     const job = downloadTracker.getJob(match.jobId);
     if (!job || !["pending", "downloading"].includes(job.status)) continue;
@@ -318,6 +329,9 @@ export async function finishAlbumGrab<Payload extends PipelinePayload>(
             source,
             jobId: job.id,
           });
+        if (job.id !== payload.jobId || !job.downloadSource) {
+          downloadTracker.updateDownloadMetadata(job.id, albumMetadata);
+        }
         return finalizePipelineJobSuccess({
           downloadTracker,
           job,
@@ -329,8 +343,7 @@ export async function finishAlbumGrab<Payload extends PipelinePayload>(
       });
       if (committed.cancelled) continue;
       onImported?.();
-      if (job.status === "done")
-        recordAlbumTrackState(job, source === "soulseek" ? "slskd" : source);
+      if (job.status === "done") recordAlbumTrackState(job, importedSource);
     } catch (error) {
       reasons.set(job.id, "Album file import failed");
       logger.warn(source, "Album file import failed", {

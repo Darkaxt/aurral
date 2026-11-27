@@ -39,7 +39,7 @@ import {
 import { judgeRelease } from "./releaseJudge.ts";
 import { manifestIndexFor, type ReleaseManifest } from "../releaseManifest.ts";
 import { isRequestedYoutubeAlbum, readYoutubeFile } from "./youtubeEvidence.ts";
-import { scoreTextMatch } from "../providers/brainzmashRanking.ts";
+import { scoreTextMatch } from "../providers/metadataRanking.ts";
 import { validateParsedQuality } from "../qualityProfile.ts";
 import { logger } from "../logger.ts";
 
@@ -360,12 +360,15 @@ export async function validateDownloadedTrackFile({
       [trackRequest.artistName, ...(trackRequest.artistAliases || [])].filter(Boolean),
     ).title ||
     [listedTitle, claimedTitle(listedTitle)]
-      .filter(Boolean)
-      .reduce((kept, option) =>
-        titleSimilarity(trackRequest.trackName, option) >
-        titleSimilarity(trackRequest.trackName, kept)
-          ? option
-          : kept,
+      .filter((option): option is string => Boolean(option))
+      .reduce<string | null>(
+        (kept, option) =>
+          kept === null ||
+          titleSimilarity(trackRequest.trackName, option) >
+            titleSimilarity(trackRequest.trackName, kept)
+            ? option
+            : kept,
+        null,
       );
   const hasYtdlpIdFilename =
     source === "ytdlp" && getFileBaseName(actual.filename) === readTagText(actual.provider.id);

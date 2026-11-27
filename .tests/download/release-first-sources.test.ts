@@ -170,14 +170,14 @@ function libraryJobs(
     createTrackedJob(
       downloadTracker,
       {
-        artistName: requireFixture(group.artists[0]).artistname,
+        artistName: requireFixture(group.artists[0]).name,
         albumName: group.title,
         albumMbid: group.id,
         releaseMbid,
         requestGroupId,
         trackName,
         trackNumber:
-          release.tracks.find((track) => track.trackname === trackName)?.trackposition || null,
+          release.tracks.find((track) => track.title === trackName)?.trackPosition || null,
         durationMs: 200000,
         ...extra,
       },
@@ -404,6 +404,24 @@ const storedRequest = (jobId: string) =>
       "SELECT request_kind, quick_searched_sources, status FROM download_jobs WHERE id = ?",
     )
     .get(jobId)!;
+
+test("a track MusicBrainz titles [unknown] fails without a search", async (t) => {
+  useQuickSources();
+  const group = album("untitled", "Untitled Band", [
+    { id: "untitled-release", tracks: ["Named", "[unknown]"] },
+  ]);
+  await serveGroups(t, [group]);
+
+  const [track] = libraryJobs(group, ["[unknown]"]);
+  assert.ok(track !== undefined);
+  await downloadWorker.processJob(trackedJob(downloadTracker, track));
+
+  assert.equal(queued(track), undefined);
+  assert.deepEqual(
+    [trackedJob(downloadTracker, track).status, trackedJob(downloadTracker, track).error],
+    ["failed", "MusicBrainz doesn't have this track's title yet"],
+  );
+});
 
 test("a track request searches yt-dlp ranked first before its release, and never again after; a whole-album request starts on its release", async (t) => {
   const sources = useQuickSources();
@@ -1737,10 +1755,12 @@ test("each track joins only an attempt for the release it is pinned to and liste
     releaseMbid: "standard",
   });
   assert.ok(offRelease !== undefined && first !== undefined);
-  const [deluxeSecond, deluxeBonus] = libraryJobs(group, ["Second", "Bonus Song"], {
-    releaseMbid: "deluxe",
-  });
-  assert.ok(deluxeSecond !== undefined && deluxeBonus !== undefined);
+  const [deluxeSecond, deluxeFirst, deluxeBonus] = libraryJobs(
+    group,
+    ["Second", "First", "Bonus Song"],
+    { releaseMbid: "deluxe", trackNumber: null },
+  );
+  assert.ok(deluxeSecond !== undefined && deluxeFirst !== undefined && deluxeBonus !== undefined);
 
   await downloadWorker.processJob(trackedJob(downloadTracker, offRelease));
   assert.equal(requireQueued(offRelease).albumGrab, undefined);
@@ -1750,7 +1770,7 @@ test("each track joins only an attempt for the release it is pinned to and liste
       .length,
     1,
   );
-  for (const id of [first, deluxeSecond, deluxeBonus]) {
+  for (const id of [first, deluxeSecond, deluxeFirst, deluxeBonus]) {
     assert.equal(trackedJob(downloadTracker, id).status, "pending");
     assert.notEqual(trackedJob(downloadTracker, id).albumGrabAttempted, true);
   }
@@ -1762,10 +1782,17 @@ test("each track joins only an attempt for the release it is pinned to and liste
   );
   assert.equal(trackedJob(downloadTracker, deluxeSecond).status, "pending");
 
+  downloadTracker.updateMetadata(deluxeBonus, { trackNumber: 9 });
   await downloadWorker.processJob(trackedJob(downloadTracker, deluxeSecond));
   assert.deepEqual(
     [requireQueued(deluxeSecond).releaseMbid, requireQueued(deluxeSecond).albumGroupJobIds],
-    ["deluxe", [deluxeSecond, deluxeBonus]],
+    ["deluxe", [deluxeSecond, deluxeFirst, deluxeBonus]],
+  );
+  assert.deepEqual(
+    [deluxeSecond, deluxeFirst, deluxeBonus].map(
+      (id) => trackedJob(downloadTracker, id).trackNumber,
+    ),
+    [2, 1, 3],
   );
 });
 

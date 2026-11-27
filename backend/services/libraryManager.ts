@@ -78,6 +78,7 @@ import {
   nextArtistMonitoring,
   nextMonitoringDefaults,
   normalizeMonitorRules,
+  refreshArtistMissingReleases,
   resolveArtistMonitoring,
   selectMonitoredReleases,
   type MonitorRules,
@@ -100,16 +101,21 @@ import {
   getNormalizedText,
   listsEveryTrack,
   selectAlbumRelease,
-} from "./providers/brainzmashRanking.ts";
+} from "./providers/metadataRanking.ts";
 import { enqueueSystemTask } from "./jobs/systemTasks.ts";
 import { scheduleReleaseMetadataRefresh } from "./releaseMetadataSync.ts";
+import { loadFreshReleasesByArtists } from "./discovery/freshReleases.ts";
 import { mapWithConcurrency } from "./discovery/helpers.ts";
 import { logger } from "./logger.ts";
 import {
   getAlbumByMbid as getMetadataAlbumByMbid,
   getArtistByMbid as getMetadataArtistByMbid,
-} from "./providers/brainzmashProvider.ts";
-import { isSilenceTrack, isVariousArtistsCredit } from "./trackMatching/titleText.ts";
+} from "./providers/metadataProvider.ts";
+import {
+  isSilenceTrack,
+  isUnknownTitle,
+  isVariousArtistsCredit,
+} from "./trackMatching/titleText.ts";
 import { recordTrackJobQueued } from "./aurralHistoryService.ts";
 const metadataLookups = new PQueue({ concurrency: 4 });
 
@@ -863,6 +869,7 @@ export class LibraryManager {
       (track) =>
         track.available !== true &&
         track.monitored !== false &&
+        !isUnknownTitle(track.title) &&
         (!requestedTrackIds || requestedTrackIds.has(Number(track.id))),
     );
     const sourceConfigured = isAnyDownloadSourceConfigured();
@@ -1546,12 +1553,25 @@ export class LibraryManager {
     const monitoredArtists = [...getManagementMap("artist").entries()].filter(
       ([, entry]) => entry.monitorRules,
     );
+    const artists = monitoredArtists.flatMap(([artistId, entry]) => {
+      const artist = libraryArtistFallback(artistId);
+      return artist?.mbid ? [{ artist, mbid: artist.mbid, entry }] : [];
+    });
+    const announced = Map.groupBy(
+      await loadFreshReleasesByArtists(artists.map(({ mbid }) => mbid)),
+      (release) => release.artistMbid,
+    );
     let queuedAlbums = 0;
     let queuedTracks = 0;
     let failedArtists = 0;
-    for (const [artistId, entry] of monitoredArtists) {
-      const artist = libraryArtistFallback(artistId);
-      if (!artist?.mbid) continue;
+    for (const { artist, mbid, entry } of artists) {
+      const news = announced.get(mbid);
+      if (news) {
+        await refreshArtistMissingReleases(
+          mbid,
+          news.map((release) => release.releaseGroupMbid),
+        );
+      }
       const effective = resolveArtistMonitoring(entry.monitorRules, defaults);
       const plan = await this.planArtistMonitoring(artist, effective);
       if (plan.error) {
@@ -1562,7 +1582,7 @@ export class LibraryManager {
       const topTracks = plan.topTracks || [];
       if (newReleases.length === 0 && topTracks.length === 0) continue;
       await this.acquireReleases({
-        artistMbid: artist.mbid,
+        artistMbid: mbid,
         releaseGroups: newReleases,
         topTracks,
         token: monitoringToken(effective),
@@ -2201,6 +2221,7 @@ export class LibraryManager {
             recordings: tracks.map((track) => track.trackMbid),
           },
           albumType: metadata?.type || "Album",
+          disambiguation: metadata?.disambiguation || null,
           secondaryTypes: metadata?.secondaryTypes || [],
           genres: metadata?.genres || [],
           images: metadata?.images || [],

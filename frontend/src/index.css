@@ -2437,6 +2437,10 @@ textarea:disabled {
   fill: currentColor;
 }
 
+.sidebar-player__toggle.player-devices svg {
+  fill: none;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .sidebar-player__toggle:hover {
     background: var(--aurral-surface-hover);
@@ -3844,8 +3848,31 @@ textarea:disabled {
 
 .artist-menu-item__main {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 0.5rem;
+}
+
+.artist-menu-item__main > svg {
+  flex-shrink: 0;
+}
+
+.artist-menu-item:has(.artist-menu-item__description):not(.artist-menu-item--danger) {
+  color: var(--aurral-text);
+}
+
+.artist-menu-item__copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.125rem;
+  overflow-wrap: anywhere;
+  text-align: start;
+  text-wrap: balance;
+}
+
+.artist-menu-item__description {
+  color: var(--aurral-text-muted);
+  font-size: var(--aurral-font-xs);
 }
 
 .artist-menu-submenu {
@@ -7916,6 +7943,10 @@ textarea:disabled {
   padding: 0.25rem;
 }
 
+.native-library-item-menu__panel:has(.artist-menu-item__description) {
+  width: min(20rem, calc(100vw - 1rem));
+}
+
 .native-library-item-menu__panel .artist-menu-item.is-selected {
   background: var(--aurral-surface-selected);
   color: var(--aurral-text);
@@ -8272,7 +8303,8 @@ button.native-library-card__artist:focus-visible {
   --native-library-track-columns: 2rem 2rem 2.35rem minmax(12rem, 1.4fr) minmax(8rem, 1fr)
     minmax(8rem, 1fr) var(--native-library-track-reason-column,)
     var(--native-library-track-added-by-column,) var(--native-library-track-year-column,)
-    var(--native-library-track-time-column, 4.5rem) 1.7rem 1.7rem 1.7rem;
+    var(--native-library-track-popular-column,) var(--native-library-track-time-column, 4.5rem)
+    1.7rem 1.7rem 1.7rem;
 
   display: grid;
   min-width: 44rem;
@@ -8598,6 +8630,21 @@ button.native-library-card__artist:focus-visible {
 
 .native-library-track-list--wide-time {
   --native-library-track-time-column: 7rem;
+}
+
+.native-library-track-list--popular {
+  --native-library-track-popular-column: 1rem;
+}
+
+.native-library-track__popular {
+  display: inline-flex;
+  justify-content: center;
+  color: var(--aurral-text-muted);
+}
+
+.native-library-track__popular svg {
+  width: var(--aurral-icon-sm);
+  height: var(--aurral-icon-sm);
 }
 
 .native-library-track__reason,
@@ -9220,7 +9267,8 @@ button.native-library-genre-row:focus-visible {
 }
 
 .native-library-track-list--release .native-library-track {
-  --native-library-track-columns: 2rem 2rem minmax(10rem, 1fr) 4.5rem 1.7rem 1.7rem 1.7rem;
+  --native-library-track-columns: 2rem 2rem minmax(10rem, 1fr)
+    var(--native-library-track-popular-column,) 4.5rem 1.7rem 1.7rem 1.7rem;
 
   min-width: 0;
 }
@@ -9579,11 +9627,13 @@ button.native-library-genre-row:focus-visible {
     --native-library-track-columns: 2.75rem 2.2rem 2.75rem minmax(12rem, 1.4fr) minmax(8rem, 1fr)
       minmax(8rem, 1fr) var(--native-library-track-reason-column,)
       var(--native-library-track-added-by-column,) var(--native-library-track-year-column,)
-      var(--native-library-track-time-column, 4.5rem) 2.75rem 2.75rem 2.75rem;
+      var(--native-library-track-popular-column,) var(--native-library-track-time-column, 4.5rem)
+      2.75rem 2.75rem 2.75rem;
   }
 
   .native-library-track-list--release .native-library-track {
-    --native-library-track-columns: 2.75rem 2.2rem minmax(10rem, 1fr) 4.5rem 2.75rem 2.75rem 2.75rem;
+    --native-library-track-columns: 2.75rem 2.2rem minmax(10rem, 1fr)
+      var(--native-library-track-popular-column,) 4.5rem 2.75rem 2.75rem 2.75rem;
   }
 }
 
@@ -9592,7 +9642,8 @@ button.native-library-genre-row:focus-visible {
 }
 
 .native-library-track-list--compact .native-library-track {
-  --native-library-track-columns: 2rem 2.35rem minmax(0, 1fr) 3rem 1.7rem 1.7rem 1.7rem;
+  --native-library-track-columns: 2rem 2.35rem minmax(0, 1fr)
+    var(--native-library-track-popular-column,) 3rem 1.7rem 1.7rem 1.7rem;
 
   min-width: 0;
 }
@@ -9725,7 +9776,8 @@ button.native-library-genre-row:focus-visible {
   }
 
   .native-library-track-list--compact .native-library-track {
-    --native-library-track-columns: 2.75rem 2.75rem minmax(0, 1fr) 3rem 2.75rem 2.75rem 2.75rem;
+    --native-library-track-columns: 2.75rem 2.75rem minmax(0, 1fr)
+      var(--native-library-track-popular-column,) 3rem 2.75rem 2.75rem 2.75rem;
   }
 }
 
@@ -9816,7 +9868,8 @@ button.native-library-genre-row:focus-visible {
 
   .native-library-track {
     --native-library-track-columns: 2.75rem 2.2rem 2.75rem minmax(10rem, 1fr)
-      var(--native-library-track-time-column, 4.5rem) 2.75rem 2.75rem 2.75rem;
+      var(--native-library-track-popular-column,) var(--native-library-track-time-column, 4.5rem)
+      2.75rem 2.75rem 2.75rem;
 
     min-width: 32rem;
   }
@@ -13296,6 +13349,10 @@ button.playlist-detail__cover {
   min-width: 0;
 }
 
+.global-player__side .player-devices {
+  color: var(--aurral-text);
+}
+
 .global-player__volume {
   width: 6rem;
 }
@@ -13676,6 +13733,63 @@ button.playlist-detail__cover {
   color: var(--aurral-text-subtle);
   font-size: var(--aurral-font-sm);
   text-align: right;
+}
+
+.friend-page__row--play {
+  padding-block: 0;
+  padding-right: 0;
+}
+
+.friend-page__row-link {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.625rem;
+  align-self: stretch;
+  padding: 0.375rem 0.375rem 0.375rem 0;
+}
+
+.friend-page__rank-play {
+  position: relative;
+  display: inline-flex;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.friend-page__rank-play::before {
+  position: absolute;
+  inset: -0.625rem -0.625rem -0.625rem -0.375rem;
+  content: "";
+}
+
+.friend-page__rank-icon {
+  display: none;
+  color: var(--aurral-text);
+}
+
+.friend-page__rank-icon svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.friend-page__rank-play:focus-visible .friend-page__rank-number {
+  display: none;
+}
+
+.friend-page__rank-play:focus-visible .friend-page__rank-icon {
+  display: inline-flex;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .friend-page__row:hover .friend-page__rank-number {
+    display: none;
+  }
+
+  .friend-page__row:hover .friend-page__rank-icon {
+    display: inline-flex;
+  }
 }
 
 .friend-stats__totals {
@@ -14543,6 +14657,14 @@ button.playlist-detail__cover {
   .now-playing__actions .now-playing__lyrics-toggle.is-active,
   .now-playing__actions .now-playing__friends-toggle.is-active {
     color: var(--aurral-text);
+  }
+
+  .now-playing__actions .player-devices {
+    color: var(--aurral-text);
+  }
+
+  .global-player__mini-control.player-devices svg {
+    fill: none;
   }
 
   .now-playing__icon-button:active {

@@ -64,11 +64,15 @@ const albumVersionsStmt = db.prepare<
     files: number;
     bytes: number;
     modified: number;
+    first_aurral_path: string | null;
+    last_aurral_path: string | null;
   }
 >(`SELECT album.id, album.mbid, album.release_group_mbid,
     COUNT(media.id) AS files,
     COALESCE(SUM(media.size), 0) AS bytes,
-    COALESCE(MAX(media.mtime_ms), 0) AS modified
+    COALESCE(MAX(media.mtime_ms), 0) AS modified,
+    MIN(CASE WHEN media.source = 'aurral' THEN media.path END) AS first_aurral_path,
+    MAX(CASE WHEN media.source = 'aurral' THEN media.path END) AS last_aurral_path
   FROM library_albums AS album
   LEFT JOIN library_media_files AS media ON media.album_id = album.id AND media.available = 1
   WHERE album.id IN (SELECT value FROM json_each(?))
@@ -149,6 +153,9 @@ const albumVersions = (json: string, revision: string) =>
           row.bytes,
           row.modified,
           row.release_group_mbid ?? row.mbid ?? "",
+          ...[row.first_aurral_path, row.last_aurral_path].flatMap((file) =>
+            file ? [path.dirname(file)] : [],
+          ),
         ),
       ]),
   );
@@ -277,8 +284,8 @@ function metadataImageUrl(metadataJson: string | null) {
   );
 }
 
-async function findArtistPhoto(mbid: string, artistName: string): Promise<ArtworkLookup> {
-  const image = await getArtistImage(mbid, { artistName });
+async function findArtistPhoto(mbid: string): Promise<ArtworkLookup> {
+  const image = await getArtistImage(mbid);
   const photo = image.url ? await downloadArtwork(image.url) : null;
   if (photo?.artwork) return photo;
   return { artwork: null, transient: Boolean(photo?.transient || image.transientError) };
@@ -330,7 +337,7 @@ async function findAlbumArtwork(albumId: number): Promise<ArtworkLookup> {
   if (cover.artwork || albumFilesStmt.get(albumId)) return cover;
   const album = albumStmt.get(albumId);
   if (!album?.artist_mbid) return cover;
-  const photo = await findArtistPhoto(album.artist_mbid, album.artist_name);
+  const photo = await findArtistPhoto(album.artist_mbid);
   return photo.artwork ? photo : { artwork: null, transient: cover.transient || photo.transient };
 }
 
@@ -338,7 +345,7 @@ async function findArtistArtwork(artistId: number): Promise<ArtworkLookup> {
   const artist = artistStmt.get(artistId);
   if (!artist) return { artwork: null };
   if (artist.mbid) {
-    const photo = await findArtistPhoto(artist.mbid, artist.name);
+    const photo = await findArtistPhoto(artist.mbid);
     if (photo.artwork || photo.transient) return photo;
   }
   for (const album of artistAlbumsStmt.all(artistId, ARTIST_FALLBACK_ALBUMS)) {

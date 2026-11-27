@@ -10,7 +10,7 @@ import {
   findLibraryArtist,
   findLibraryTracksForAlbum,
 } from "../libraryReadModel.ts";
-import { getLibraryForArtistReferences } from "../libraryQueryService.ts";
+import { getLibraryForArtistReferences, getLibraryTrackTitle } from "../libraryQueryService.ts";
 import { getLibraryFileIds, getLibraryMediaFile } from "../libraryMediaStore.ts";
 import { classifyLibraryFileQuality } from "../qualityProfile.ts";
 import { scheduleLibraryScan as scheduleLibraryScanJob } from "../libraryScanWorker.ts";
@@ -20,7 +20,12 @@ import {
   normalizePositiveInteger,
   sanitizePathPart,
 } from "../downloadUtils.ts";
-import { AURRAL_FLOWS_DIR, isPathInsideRoot, resolveDownloadRoot } from "../downloadPaths.ts";
+import {
+  AURRAL_FLOWS_DIR,
+  buildTrackDestination,
+  isPathInsideRoot,
+  resolveDownloadRoot,
+} from "../downloadPaths.ts";
 import { recordTrackReused } from "../aurralHistoryService.ts";
 import { playlistManager } from "../playlists/playlistManager.ts";
 
@@ -330,7 +335,12 @@ async function adoptFileIntoPlaylist(
   const albumDir = sanitizePathPart(options.track?.albumName || segments.at(-2), "Unknown Album");
   const destPath = joinUnderRoot(
     targetRoot,
-    path.join(artistDir, albumDir),
+    targetRoot === root
+      ? buildTrackDestination(null, artistDir, albumDir, {
+          root,
+          album: options.track,
+        })
+      : path.join(artistDir, albumDir),
     path.basename(resolvedSource),
   );
   const committed = await commitDownloadedFile(resolvedSource, destPath);
@@ -403,7 +413,9 @@ export async function removePlaylistFileIfUnshared(
   const others = matchingJobs.filter((job) => !excludeJobIds.has(String(job.id || "")));
   const [survivor] = sortReusableJobs(others);
   if (survivor) {
-    const nextPath = await adoptFileIntoPlaylist(resolved, survivor.playlistType, downloadRoot);
+    const nextPath = await adoptFileIntoPlaylist(resolved, survivor.playlistType, downloadRoot, {
+      track: survivor,
+    });
     return { action: nextPath ? "relocated" : "skipped" };
   }
   if (await lifecycleProtectionReason(resolved)) return { action: "skipped" };
@@ -669,18 +681,38 @@ const resolveReplacedFileSource: typeof resolveRepairTrackSource = async (track,
   return source ? { source, reason: null } : resolveRepairTrackSource(track, options);
 };
 
+// Jobs whose file left the Library, for the tracks of the files a scan indexed.
+function jobsMissingIndexedTrack(changed: Set<string>) {
+  const titles = new Set<string>();
+  for (const filePath of changed) {
+    const media = indexedFile(filePath);
+    const title = media?.available === 1 ? getLibraryTrackTitle(media.track_id) : null;
+    if (title) titles.add(title);
+  }
+  return new Set(
+    [...titles].flatMap((title) =>
+      downloadTracker
+        .getDoneByTrackName(title)
+        .filter((job) => job.finalPath && !indexedFile(path.resolve(job.finalPath)))
+        .map((job) => job.id),
+    ),
+  );
+}
+
 // Jobs follow the files a scan changed: a job whose file the scan removed
 // moves to the Library's copy of its track, even for an album request, which
-// otherwise never reuses Library files. Every job takes the quality the scan
-// read. A file that is only unavailable, like one on a drive that is not
-// connected, keeps its jobs as they are.
+// otherwise never reuses Library files. So does a job whose file left the
+// Library before the scan that indexed its track's new file. Every job takes
+// the quality the scan read. A file that is only unavailable, like one on a
+// drive that is not connected, keeps its jobs as they are.
 export async function followChangedLibraryFiles(changedPaths: string[]) {
   const changed = new Set(changedPaths.map((filePath) => path.resolve(filePath)));
   const playlistTypes = new Set<string>();
   const followed = new Map<string, string[]>();
+  const missingTrackJobIds = jobsMissingIndexedTrack(changed);
   for (const job of downloadTracker.getAll()) {
     if (job.status !== "done" || job.upgradeForJobId) continue;
-    if (!changed.has(path.resolve(job.finalPath))) continue;
+    if (!changed.has(path.resolve(job.finalPath)) && !missingTrackJobIds.has(job.id)) continue;
     if (!indexedFile(path.resolve(job.finalPath))) {
       const result = await restoreCompletedTrack(job, {
         requeueOnMissing: false,
